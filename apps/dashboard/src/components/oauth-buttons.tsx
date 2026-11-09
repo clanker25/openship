@@ -1,0 +1,137 @@
+"use client";
+
+import { reportCaughtError as observeCaughtError } from "@repo/core/diagnostics";
+import { Icon as UiIcon, type IconName } from "@repo/ui/icons";
+
+import { useState } from "react";
+import { signIn } from "@/lib/auth-client";
+import { isAbortError } from "@/lib/api";
+import { useToast } from "@/components/toast";
+import { useI18n } from "@/components/i18n-provider";
+import { Button } from "@/components/ui/button";
+import {
+  renderableOAuthProviders,
+  renderableOidcProvider,
+  type AdvertisedAuthProvider,
+  type RenderableOAuthProviderId,
+} from "@/lib/auth-providers";
+
+/** Icon per renderable provider. The label comes from i18n (`t.auth.oauth[id]`),
+ *  so adding a provider means one entry here and one key there. */
+const PROVIDER_ICONS: Record<RenderableOAuthProviderId, IconName> = {
+  github: "github",
+  google: "google",
+};
+
+/**
+ * Shared OAuth buttons, rendered from the provider list the SERVER advertises
+ * (GET /health/env → `authProviders`, plumbed through the auth layout's
+ * context). Renders nothing at all — no divider either — when the list is
+ * empty, so callers can mount this unconditionally instead of guessing from
+ * `selfHosted` which providers exist.
+ *
+ * Pass callbackURL to override the default post-OAuth redirect.
+ */
+export function OAuthButtons({
+  providers,
+  callbackURL = "/",
+  showDivider = true,
+}: {
+  providers: readonly AdvertisedAuthProvider[] | undefined;
+  callbackURL?: string;
+  showDivider?: boolean;
+}) {
+  const { toast } = useToast();
+  const { t } = useI18n();
+  const [loading, setLoading] = useState<RenderableOAuthProviderId | "oidc" | null>(null);
+
+  const visible = renderableOAuthProviders(providers);
+  const oidc = renderableOidcProvider(providers);
+
+  async function handleOAuth(provider: RenderableOAuthProviderId | "oidc") {
+    setLoading(provider);
+    try {
+      // Resolve callbackURL against the DASHBOARD origin. Better Auth resolves
+      // a relative callback against its baseURL — the API host — so in
+      // split-origin SaaS (app.* vs api.*) a bare "/" dead-ends on the API
+      // subdomain after the OAuth callback instead of returning to the app.
+      const appOrigin = window.location.origin;
+      const cb = new URL(callbackURL, appOrigin).toString();
+      const errorCb = new URL("/login", appOrigin).toString();
+      // better-auth resolves sign-in errors into `{ error }` rather than
+      // throwing, so inspecting the return value is what actually surfaces a
+      // misconfigured/failed provider — the try/catch only covers thrown
+      // network/abort errors. Without this the spinner spun forever.
+      const { error } = await signIn.social({
+        provider,
+        callbackURL: cb,
+        newUserCallbackURL: cb,
+        errorCallbackURL: errorCb,
+      });
+      if (error) {
+        toast("error", error.message ?? t.auth.errors.oauthFailed);
+        setLoading(null);
+      }
+      // Success → better-auth redirects the browser; keep the spinner until the
+      // navigation happens rather than flashing the button back.
+    } catch (err) {
+      observeCaughtError(err, "dashboard/components/oauth-buttons");
+      const msg = isAbortError(err)
+        ? t.auth.errors.serverUnreachable
+        : t.auth.errors.oauthFailed;
+      toast("error", msg);
+      setLoading(null);
+    }
+  }
+
+  // Nothing configured server-side → no divider, no buttons. This is what makes
+  // the callers' unconditional `<OAuthButtons providers={…} />` safe.
+  if (visible.length === 0 && !oidc) return null;
+
+  // Every shipped locale's GitHub label contains the literal "GitHub", so the
+  // OIDC button reuses that sentence with the IdP display name in its place.
+  const oidcLabel = oidc
+    ? t.auth.oauth.github.includes("GitHub")
+      ? t.auth.oauth.github.replace("GitHub", oidc.name)
+      : `Continue with ${oidc.name}`
+    : null;
+
+  return (
+    <>
+      {/* Divider */}
+      {showDivider && <div className="my-6 flex items-center gap-3">
+        <div className="h-px flex-1 bg-border" />
+        <span className="select-none text-xs text-muted-foreground">{t.auth.oauth.or}</span>
+        <div className="h-px flex-1 bg-border" />
+      </div>}
+
+      {/* OAuth buttons */}
+      <div className={showDivider ? "space-y-2.5" : "mt-2.5 space-y-2.5"}>
+        {visible.map((provider) => (
+          <Button
+            key={provider}
+            variant="ghost"
+            disabled={loading !== null}
+            onClick={() => handleOAuth(provider)}
+            className="w-full border-0 bg-foreground/[0.04] hover:bg-foreground/[0.08]"
+          >
+            {loading === provider ? <UiIcon name="spinner" className="animate-spin" /> : <UiIcon name={PROVIDER_ICONS[provider]} size={17} />}
+            {t.auth.oauth[provider]}
+          </Button>
+        ))}
+        {oidc && (
+          <Button
+            key="oidc"
+            variant="ghost"
+            disabled={loading !== null}
+            onClick={() => handleOAuth("oidc")}
+            className="w-full border-0 bg-foreground/[0.04] hover:bg-foreground/[0.08]"
+          >
+            {loading === "oidc" ? <UiIcon name="spinner" className="animate-spin" /> : <UiIcon name="key" size={17} />}
+            {oidcLabel}
+          </Button>
+        )}
+      </div>
+    </>
+  );
+}

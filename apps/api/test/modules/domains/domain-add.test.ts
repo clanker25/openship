@@ -1,0 +1,403 @@
+import "../mail/_setup-env";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ConflictError } from "@repo/core";
+
+const domainRepo = vi.hoisted(() => ({
+  create: vi.fn(),
+  findByHostname: vi.fn(),
+  setPrimary: vi.fn(),
+  update: vi.fn(),
+  // Read when a redirect target has to be checked against the project's own
+  // hostnames (lib/domain-redirect.ts).
+  listByProject: vi.fn(),
+}));
+
+const infra = vi.hoisted(() => ({
+  target: "local" as "local" | "cloud",
+  verifyDomain: vi.fn(),
+}));
+
+const projectRepo = vi.hoisted(() => ({
+  findById: vi.fn(),
+}));
+
+vi.mock("@repo/db", () => ({
+  repos: {
+    domain: domainRepo,
+    project: projectRepo,
+  },
+}));
+
+vi.mock("../../../src/lib/controller-helpers", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/lib/controller-helpers")>();
+  return {
+    ...actual,
+    platform: () => ({ target: infra.target, runtime: {}, routing: { verifyDomain: infra.verifyDomain } }),
+  };
+});
+
+vi.mock("@repo/platform/engine/lib/server-target", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@repo/platform/engine/lib/server-target")>();
+  return {
+    ...actual,
+    resolveProjectServerHost: vi.fn().mockResolvedValue("203.0.113.10"),
+    // Never reach the public-IP echo endpoints from a unit test.
+    resolveInstancePublicIp: vi.fn().mockResolvedValue(null),
+  };
+});
+
+vi.mock("@repo/platform/engine/lib/domain-ssl", () => ({
+  installDomainCert: vi.fn(),
+  manageDomainSsl: vi.fn(),
+}));
+
+// Stubbed so the provisioning ARGUMENTS are assertable: which hostnames Openship
+// actually writes records for is the thing that matters, not what Cloudflare says.
+const provisionRecords = vi.fn().mockResolvedValue({ provisioned: true, records: [] });
+vi.mock("@repo/platform/engine/modules/dns/dns-credential.service", () => ({
+  provisionRecords: (...args: unknown[]) => provisionRecords(...args),
+  releaseRecords: vi.fn().mockResolvedValue({ deleted: 0 }),
+}));
+
+vi.mock("@repo/platform/engine/lib/dns-resolver", () => ({
+  resolveRecords: vi.fn(),
+}));
+
+vi.mock("@repo/platform/engine/lib/route-apply.service", () => ({
+  reconcileProjectRoutes: vi.fn(),
+}));
+
+import { addDomain } from "@repo/platform/engine/modules/domains/domain.service";
+
+const project = {
+  id: "proj_123",
+  organizationId: "org_123",
+};
+
+const context = {
+  organizationId: "org_123",
+  userId: "user_123",
+};
+
+const existingDomain = {
+  id: "dom_existing",
+  projectId: project.id,
+  serviceId: null,
+  hostname: "example.com",
+  verificationToken: "verify-existing",
+  externalIngress: false,
+  isPrimary: false,
+  verified: false,
+  status: "pending",
+};
+
+describe("addDomain retries", () => {
+  beforeEach(() => {
+    infra.target = "local";
+    infra.verifyDomain.mockResolvedValue({ requiredRecords: { cname: { target: "edge.test" } } });
+    domainRepo.create.mockReset();
+    domainRepo.findByHostname.mockReset();
+    domainRepo.setPrimary.mockReset();
+    domainRepo.update.mockReset();
+    domainRepo.listByProject.mockReset();
+    domainRepo.listByProject.mockResolvedValue([]);
+    projectRepo.findById.mockReset();
+    projectRepo.findById.mockResolvedValue(project);
+    provisionRecords.mockClear();
+  });
+
+  it.each([301, 302, 307, 308])("accepts a Cloud redirect to another project-owned hostname (%s)", async redirectStatus => {
+    infra.target = "cloud";
+    projectRepo.findById.mockResolvedValue({ ...project, workspaceId: "cloud-server" });
+    domainRepo.listByProject.mockResolvedValue([existingDomain]);
+    domainRepo.findByHostname.mockResolvedValue(null);
+    domainRepo.create.mockImplementation(async data => ({ id: "dom_redirect", ...data }));
+    const result = await addDomain(context as any, {
+      projectId: project.id, hostname: "www.example.com", redirectTo: "example.com", redirectStatus,
+    });
+    expect(result.domain).toMatchObject({ hostname: "www.example.com", redirectTo: "example.com", redirectStatus, verified: false, status: "pending" });
+    expect(result.records.mode).toBe("cloud");
+    expect(result.records.records).toContainEqual(expect.objectContaining({ type: "CNAME", value: "edge.test" }));
+  });
+
+  it("creates and reports a Cloud www sibling with its own verification records", async () => {
+    infra.target = "cloud";
+    projectRepo.findById.mockResolvedValue({ ...project, workspaceId: "cloud-server" });
+    domainRepo.findByHostname.mockResolvedValue(null);
+    domainRepo.create.mockImplementation(async data => ({ id: `dom_${data.hostname}`, ...data }));
+    const result = await addDomain(context as any, { projectId: project.id, hostname: "example.com", includeWww: true });
+    expect(result.wwwError).toBeUndefined();
+    expect(result.www).toEqual({ id: "dom_www.example.com", hostname: "www.example.com" });
+    expect(domainRepo.create).toHaveBeenCalledWith(expect.objectContaining({ hostname: "www.example.com", redirectTo: "example.com", redirectStatus: 301, verified: false }));
+    expect(result.records.mode).toBe("cloud");
+    expect(result.records.records.filter(record => record.type === "TXT").map(record => record.name)).toEqual(["_openship-challenge.example.com", "_openship-challenge.www.example.com"]);
+  });
+
+  it.each([
+    ["www.example.com", "other.example.net", []],
+    ["www.example.com", "www.example.com", []],
+    ["www.example.com", "example.com", [{ ...existingDomain, redirectTo: "www.example.com" }]],
+  ])("keeps Cloud redirect ownership and loop validation for %s → %s", async (hostname, redirectTo, peers) => {
+    projectRepo.findById.mockResolvedValue({ ...project, workspaceId: "cloud-server" });
+    domainRepo.listByProject.mockResolvedValue(peers);
+    await expect(addDomain(context as any, { projectId: project.id, hostname, redirectTo })).rejects.toThrow();
+    expect(domainRepo.create).not.toHaveBeenCalled();
+    expect(domainRepo.update).not.toHaveBeenCalled();
+  });
+
+  it("reuses a pending domain owned by the same project", async () => {
+    domainRepo.findByHostname.mockResolvedValue(existingDomain);
+
+    const result = await addDomain(context as any, {
+      projectId: project.id,
+      hostname: "example.com",
+      isPrimary: true,
+    });
+
+    expect(domainRepo.create).not.toHaveBeenCalled();
+    expect(domainRepo.setPrimary).toHaveBeenCalledWith(project.id, existingDomain.id);
+    expect(result.domain).toMatchObject({
+      id: existingDomain.id,
+      hostname: existingDomain.hostname,
+      isPrimary: true,
+    });
+    // Self-hosted verification is ACME-driven (issuing the cert proves control),
+    // so there's no ownership TXT — just the A record as a "point it here" hint.
+    expect(result.records).toEqual({
+      mode: "selfhosted",
+      records: [
+        {
+          type: "A",
+          host: "@",
+          name: "example.com",
+          value: "203.0.113.10",
+        },
+      ],
+    });
+  });
+
+  it("still rejects a domain owned by another project", async () => {
+    domainRepo.findByHostname.mockResolvedValue({
+      ...existingDomain,
+      projectId: "proj_other",
+    });
+
+    await expect(
+      addDomain(context as any, {
+        projectId: project.id,
+        hostname: "example.com",
+      }),
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    expect(domainRepo.create).not.toHaveBeenCalled();
+    expect(domainRepo.update).not.toHaveBeenCalled();
+  });
+
+  it("enforces DNS-01 for a wildcard even when HTTP is requested, without adding www", async () => {
+    domainRepo.findByHostname.mockResolvedValue(null);
+    domainRepo.create.mockImplementation(async (data: any) => ({ id: "dom_wildcard", ...data }));
+    const result = await addDomain(context as any, {
+      projectId: project.id, hostname: "*.example.com", sslChallenge: "http-01", includeWww: true,
+    });
+    expect(result.domain).toMatchObject({ hostname: "*.example.com", sslChallenge: "dns-01", isPrimary: false });
+    expect(domainRepo.create).toHaveBeenCalledOnce();
+    expect(result.www).toBeUndefined();
+  });
+
+  it("rejects a wildcard as the primary URL before creating a domain", async () => {
+    await expect(addDomain(context as any, { projectId: project.id, hostname: "*.example.com", isPrimary: true })).rejects.toThrow(/concrete hostname/);
+    expect(domainRepo.create).not.toHaveBeenCalled();
+  });
+
+  // The toggle used to set a flag nothing read: the controller dropped it and the SSL
+  // layer's www branch only ever resolved an EXISTING row (#289). www is a second
+  // routable hostname — the edge binds one server_name per row — so it only exists
+  // once it has its own row.
+  it("materializes the www variant as its own row when includeWww is set", async () => {
+    domainRepo.findByHostname.mockResolvedValue(null);
+    domainRepo.create.mockImplementation(async (data: any) => ({
+      id: `dom_${data.hostname}`,
+      ...data,
+    }));
+
+    await addDomain(
+      context as any,
+      {
+        projectId: project.id,
+        hostname: "example.com",
+        isPrimary: true,
+        includeWww: true,
+      } as any,
+    );
+
+    expect(domainRepo.create.mock.calls.map(([data]: [any]) => data.hostname)).toEqual([
+      "example.com",
+      "www.example.com",
+    ]);
+    // The apex keeps primary — the variant is a sibling, not a replacement — and it
+    // starts pending so it verifies and certs on its own like any custom domain.
+    // It also starts as a 301 to the apex: covering www shouldn't mean serving the
+    // same app on two hostnames.
+    expect(domainRepo.create.mock.calls[1][0]).toMatchObject({
+      hostname: "www.example.com",
+      isPrimary: false,
+      verified: false,
+      status: "pending",
+      redirectTo: "example.com",
+      redirectStatus: 301,
+    });
+  });
+
+  // The row existing isn't enough: the operator has to be TOLD to add the
+  // sibling's DNS record, or it never resolves, its certificate can never be
+  // issued, and every deploy retries a hostname that was set up to fail.
+  it("returns the www sibling's DNS record and row id, not just the apex's", async () => {
+    domainRepo.findByHostname.mockResolvedValue(null);
+    domainRepo.create.mockImplementation(async (data: any) => ({
+      id: `dom_${data.hostname}`,
+      ...data,
+    }));
+
+    const result = await addDomain(
+      context as any,
+      {
+        projectId: project.id,
+        hostname: "example.com",
+        isPrimary: true,
+        includeWww: true,
+      } as any,
+    );
+
+    expect(result.records.records).toEqual([
+      { type: "A", host: "@", name: "example.com", value: "203.0.113.10" },
+      { type: "A", host: "www", name: "www.example.com", value: "203.0.113.10" },
+    ]);
+    expect(result.www).toEqual({ id: "dom_www.example.com", hostname: "www.example.com" });
+    expect(result.wwwError).toBeUndefined();
+  });
+
+  // A sibling that can't be claimed must not silently look like success — the apex
+  // is still what the caller asked for, so it stands, and the failure is reported.
+  it("keeps the apex and REPORTS the reason when the www sibling can't be claimed", async () => {
+    domainRepo.create.mockImplementation(async (data: any) => ({
+      id: `dom_${data.hostname}`,
+      ...data,
+    }));
+    domainRepo.findByHostname.mockImplementation(async (hostname: string) =>
+      hostname === "www.example.com"
+        ? { ...existingDomain, id: "dom_foreign", hostname, projectId: "proj_other" }
+        : null,
+    );
+
+    const result = await addDomain(
+      context as any,
+      {
+        projectId: project.id,
+        hostname: "example.com",
+        isPrimary: true,
+        includeWww: true,
+      } as any,
+    );
+
+    expect(result.domain.hostname).toBe("example.com");
+    expect(result.www).toBeUndefined();
+    expect(result.wwwError).toContain("www.example.com");
+
+    // The panel still LISTS www so the operator knows what it would need...
+    expect(result.records.records.some((r: any) => r.name === "www.example.com")).toBe(true);
+    // ...but NOTHING is written at add time: auto-configuration is on-demand now
+    // (planDomainDns/applyDomainDns), so adding a domain never touches the
+    // operator's zone until they press "apply".
+    expect(provisionRecords).not.toHaveBeenCalled();
+  });
+
+  it("never stacks www on www", async () => {
+    domainRepo.findByHostname.mockResolvedValue(null);
+    domainRepo.create.mockImplementation(async (data: any) => ({
+      id: `dom_${data.hostname}`,
+      ...data,
+    }));
+
+    await addDomain(
+      context as any,
+      {
+        projectId: project.id,
+        hostname: "www.example.com",
+        includeWww: true,
+      } as any,
+    );
+
+    expect(domainRepo.create.mock.calls.map(([data]: [any]) => data.hostname)).toEqual([
+      "www.example.com",
+    ]);
+  });
+  it("supports explicit sslChallenge: 'dns-01'", async () => {
+    domainRepo.findByHostname.mockResolvedValue(null);
+    domainRepo.create.mockImplementation(async (data: any) => ({
+      id: `dom_${data.hostname}`,
+      ...data,
+    }));
+
+    const result = await addDomain(
+      context as any,
+      {
+        projectId: project.id,
+        hostname: "app.example.com",
+        sslChallenge: "dns-01",
+      } as any,
+    );
+
+    expect(domainRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostname: "app.example.com",
+        sslChallenge: "dns-01",
+      }),
+    );
+    expect(result.domain.sslChallenge).toBe("dns-01");
+  });
+
+  it("automatically assigns sslChallenge: 'dns-01' to wildcard domains", async () => {
+    domainRepo.findByHostname.mockResolvedValue(null);
+    domainRepo.create.mockImplementation(async (data: any) => ({
+      id: `dom_${data.hostname}`,
+      ...data,
+    }));
+
+    const result = await addDomain(
+      context as any,
+      {
+        projectId: project.id,
+        hostname: "*.example.com",
+      } as any,
+    );
+
+    expect(domainRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hostname: "*.example.com",
+        sslChallenge: "dns-01",
+      }),
+    );
+    expect(result.domain.sslChallenge).toBe("dns-01");
+    // Wildcard should produce host: "*"
+    expect(result.records.records).toEqual([
+      { type: "A", host: "*", name: "*.example.com", value: "203.0.113.10" },
+    ]);
+  });
+});
+
+// The application seams moved with the shared engine.
+vi.mock("@repo/platform/engine/lib/platform-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/lib/controller-helpers")>();
+  return {
+    ...actual,
+    platform: () => ({ target: infra.target, runtime: {}, routing: { verifyDomain: infra.verifyDomain } }),
+  };
+});
+
+vi.mock("@repo/platform/engine/lib/resource-access", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/lib/controller-helpers")>();
+  return {
+    ...actual,
+    platform: () => ({ target: infra.target, runtime: {}, routing: { verifyDomain: infra.verifyDomain } }),
+  };
+});

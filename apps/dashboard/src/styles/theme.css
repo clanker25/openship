@@ -1,0 +1,156 @@
+@import "./theme-tokens.css";
+
+/* Built-in palettes are generated from packages/core/src/appearance-defaults.json.
+ * Keep semantic utilities and aliases here; personal themes override the same tokens. */
+
+/* ══════════════════════════════════════════════════════════════
+   UTILITY CLASSES  -  .th-*
+   Each class is a single-purpose semantic token.
+   ══════════════════════════════════════════════════════════════ */
+
+/* Text */
+.th-text-heading   { color: var(--th-text-heading); }
+.th-text-title     { color: var(--th-text-title); }
+.th-text-strong    { color: var(--th-text-strong); }
+.th-text-body      { color: var(--th-text-body); }
+.th-text-secondary { color: var(--th-text-secondary); }
+.th-text-muted     { color: var(--th-text-muted); }
+.th-text-label     { color: var(--th-text-label); }
+.th-text-hint      { color: var(--th-text-hint); }
+.th-text-ghost     { color: var(--th-text-ghost); }
+
+/* Shared navigation retains the original muted text until selected or hovered. */
+.th-nav-item {
+  color: var(--th-text-muted);
+}
+.th-nav-item:hover {
+  color: var(--th-text-title);
+  background-color: color-mix(in oklab, var(--th-text-title) 4%, transparent);
+}
+.th-nav-item[aria-current="page"] {
+  color: var(--th-text-title);
+  background-color: color-mix(in oklab, var(--th-text-title) 7%, transparent);
+}
+
+/* Page / layout */
+.th-page     { background-color: var(--th-bg-page); min-height: 100dvh; }
+.th-bg-card  { background-color: var(--th-bg-card); }
+.th-bg-subtle { background-color: var(--th-bg-subtle); }
+
+/* Card */
+.th-card {
+  background-color: var(--th-card-bg);
+  border: 1px solid var(--th-card-bd);
+  border-radius: 1rem;
+  box-shadow: var(--th-card-shadow);
+  transition: border-color .2s;
+}
+.th-card:has(a:hover) { border-color: var(--th-card-bd-hover); }
+
+/* Borders */
+.th-bd-default { border-color: var(--th-bd-default); }
+.th-bd-subtle  { border-color: var(--th-bd-subtle); }
+.th-divider    { border-color: var(--th-divider); }
+
+/* Input */
+.th-input {
+  background-color: var(--th-input-bg);
+  border: 1px solid var(--th-input-bd);
+  color: var(--th-input-text);
+  outline: none;
+  transition: border-color .15s, background-color .15s;
+}
+.th-input::placeholder  { color: var(--th-input-placeholder); }
+.th-input:focus {
+  border-color: var(--th-input-bd-focus);
+  background-color: var(--th-input-bg-focus);
+}
+
+/* Button - primary */
+.th-btn {
+  background-color: var(--th-btn-bg);
+  color: var(--th-btn-text);
+  transition: background-color .15s;
+}
+.th-btn:hover            { background-color: var(--th-btn-bg-hover); }
+.th-btn:disabled         { opacity: .42; cursor: not-allowed; }
+
+/* Accent button — palette and shadows follow the theme without component overrides. */
+.th-btn-accent {
+  color: var(--th-btn-accent-text);
+  background-image:
+    radial-gradient(circle at 30% 50%, var(--th-btn-accent-highlight), transparent 70%),
+    linear-gradient(to right in oklab, var(--th-btn-accent-from), var(--th-btn-accent-via), var(--th-btn-accent-to));
+  box-shadow: 0 1px 3px 0 var(--th-btn-accent-shadow), 0 1px 2px -1px var(--th-btn-accent-shadow);
+}
+.th-btn-accent:hover {
+  box-shadow: 0 4px 6px -1px var(--th-btn-accent-shadow-hover), 0 2px 4px -2px var(--th-btn-accent-shadow-hover);
+}
+
+/* Button - ghost/outline */
+.th-btn-ghost {
+  border: 1px solid var(--th-btn-ghost-bd);
+  color: var(--th-btn-ghost-text);
+  background-color: transparent;
+  transition: border-color .15s, color .15s, background-color .15s;
+}
+.th-btn-ghost:hover {
+  border-color: var(--th-btn-ghost-bd-hover);
+  color: var(--th-btn-ghost-text-hover);
+  background-color: var(--th-btn-ghost-bg-hover);
+}
+.th-btn-ghost:disabled { opacity: .42; cursor: not-allowed; }
+
+/* Dropdown */
+.th-dropdown {
+  background-color: var(--th-dropdown-bg);
+  border: 1px solid var(--th-dropdown-bd);
+  box-shadow: var(--th-dropdown-shadow);
+}
+
+/* Spinner */
+.th-spinner-track { stroke: var(--th-spinner-track); }
+.th-spinner-fill  { stroke: var(--th-spinner-fill); }
+
+
+/* ══════════════════════════════════════════════════════════════
+   SHADCN/UI BRIDGE
+   Maps --th-* tokens → standard shadcn variable names.
+   The @theme inline block in globals.css exposes these to Tailwind
+   so utilities like bg-primary, text-foreground, border-input work.
+   Values auto-switch between light/dark because --th-* already does.
+   ══════════════════════════════════════════════════════════════ */
+
+:root,
+[data-appearance-preview] {
+  --background: var(--th-bg-page);
+  --foreground: var(--th-text-title);
+  --card: var(--th-card-bg);
+  --card-foreground: var(--th-text-title);
+  --popover: var(--th-dropdown-bg);
+  --popover-foreground: var(--th-text-title);
+  --primary: var(--th-btn-bg);
+  --primary-foreground: var(--th-btn-text);
+  --secondary: var(--th-sf-05);
+  --secondary-foreground: var(--th-text-strong);
+  --muted: var(--th-sf-04);
+  --muted-foreground: var(--th-text-muted);
+  --accent: var(--th-sf-04);
+  --accent-foreground: var(--th-text-title);
+  --destructive: #ef4444;
+  --destructive-foreground: #fafafa;
+  --border: var(--th-bd-default);
+  --input: var(--th-input-bd);
+  --ring: var(--th-on-20);
+
+  /* Semantic status → stable names (auto-switch via the --st-* per theme). */
+  --success: var(--st-success-fg);  --success-bg: var(--st-success-bg);  --success-border: var(--st-success-bd);
+  --danger:  var(--st-danger-fg);   --danger-bg:  var(--st-danger-bg);   --danger-border:  var(--st-danger-bd);
+  --warning: var(--st-warning-fg);  --warning-bg: var(--st-warning-bg);  --warning-border: var(--st-warning-bd);
+  --info:    var(--st-info-fg);     --info-bg:    var(--st-info-bg);     --info-border:    var(--st-info-bd);
+  --neutral: var(--st-neutral-fg);  --neutral-bg: var(--st-neutral-bg);  --neutral-border: var(--st-neutral-bd);
+
+  /* SOLID fills for bars / dots / solid buttons. Per-theme via --st-*-solid:
+     vivid on light, desaturated on dark/dim so they read as color, not glow. */
+  --success-solid: var(--st-success-solid);  --danger-solid: var(--st-danger-solid);  --warning-solid: var(--st-warning-solid);  --info-solid: var(--st-info-solid);  --neutral-solid: var(--st-neutral-solid);
+}

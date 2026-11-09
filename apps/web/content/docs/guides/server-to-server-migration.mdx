@@ -1,0 +1,122 @@
+---
+title: Server-to-server migration
+description: Import Docker applications into Openship Cloud or move them between connected and managed servers, with data transfer, progress and explicit cutover.
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+
+Openship migrates Docker applications, their images and their data through one workflow. You can import
+an external server into **Openship Cloud**, move an existing project between managed servers, or move
+between your own connected servers and managed servers from a self-hosted installation.
+
+<Callout title="One migration engine">
+[Platform imports](/docs/guides/migrate-from-coolify-dokploy-dokku) and project moves use the same
+transfer, deployment, verification and recovery steps. Managed destinations use the existing Docker
+runtime; their connection and public routing are supplied by Openship Cloud.
+</Callout>
+
+## Before you start
+
+- The source must run **Docker**. This flow does not move bare applications or Kubernetes workloads.
+- You need write access to both servers and, for an existing project, the project itself.
+- An external Cloud source needs a public SSH address and a password or uploaded private key. Openship
+  verifies SSH, pins the host key and encrypts the saved credentials. Private network addresses, SSH
+  agents, local key paths and jump hosts are unavailable for Cloud migration sources.
+- The managed destination needs an active subscription and enough free disk for the images and data.
+  Openship checks and prepares it before stopping the source workloads.
+- Plan a maintenance window and take an application backup. Source containers stop while data is copied
+  and the target is deployed. Downtime depends on data size, transfer speed and application startup.
+
+<Callout type="warn" title="Check domain routing before starting">
+Review the destination's DNS instructions. If your custom domain's DNS target changes, lower its TTL
+in advance and allow existing caches to expire. A low TTL reduces the DNS delay; it does not eliminate
+the data-transfer downtime or guarantee when every resolver updates. Managed domains use Cloud routing.
+</Callout>
+
+## Import into Openship Cloud
+
+<Steps>
+<Step>
+### Connect the source
+
+Open **New project → Import existing project** and connect the external server. This is a
+**migration-only connection**: it appears in the import picker, not in deployment destinations,
+terminals or general server management. You can reuse it for another import and disconnect it afterward.
+Disconnecting removes Openship's saved connection; it does not delete your external server or its data.
+</Step>
+
+<Step>
+### Scan and review the application
+
+Scan the source and select its Docker services. Review the discovered environment, images, volumes,
+bind mounts and routes. Environment values are masked in the scan response. Source-side reverse proxies
+are excluded from the application selection.
+</Step>
+
+<Step>
+### Choose a managed destination
+
+Use the same server picker as a normal deployment. Choose an existing managed server or create another
+server with its own subscription. Cloud imports always land on a managed server; connecting a migration
+source does not make external hosting a Cloud deployment option.
+
+Review the storage preview and any conflicts. Existing target data is never overwritten silently.
+Managed imports place data in storage owned by the imported project, including anonymous volumes and
+file bind mounts.
+</Step>
+
+<Step>
+### Transfer and deploy
+
+Openship prepares the destination, records the source's running state, stops the selected workloads,
+transfers their data and starts the normal deployment flow. Locally built Docker images can move too;
+the image is saved on the source and loaded on the destination without a registry push or rebuild.
+
+For external SSH → managed Cloud, the managed server can **pull directly from the source over SSH**.
+Temporary SSH trust is scoped to the run and removed afterward. If no direct connection is available,
+the workflow asks for an explicit relay choice; it does not silently proxy the transfer through your
+control plane. Between endpoints without reachable SSH, the selected relay streams through the control
+plane's existing adapters.
+</Step>
+
+<Step>
+### Verify and finish
+
+Inspect the target application, data, health and domain routing before confirming cutover. Removing
+the original containers leaves their volumes on the source server. For an external cross-server
+import, **Keep originals** restarts only the previously running source containers; their data is now
+an independent copy. Same-server imports and moves of an existing Openship project leave the
+originals stopped. Keep the old server until you have verified the application and its backups.
+
+A failed or cancelled transfer before cutover restores the original placement and running state.
+Recovery also handles interrupted workers. A **partial** run lists data that still needs attention:
+review, retry or explicitly skip each item before cutover. Do not start both copies of a stateful
+application against independently writable data.
+</Step>
+</Steps>
+
+## Move a project you already manage
+
+Open the project's migration action and select another server. The same steps move the project while
+preserving its identity. On self-hosted installations, connected SSH servers and linked managed servers
+can be sources or destinations. Cloud destinations remain managed servers. Same-server imports can
+attach existing containers instead of recreating them; cross-server moves must transfer their state.
+
+## Transfer and cleanup
+
+- Named and anonymous volumes, application bind mounts and reviewed extra paths use one storage plan.
+  System paths and sockets are excluded.
+- Direct transfers use SSH and rsync, with retry support. Explicit relay uses the shared streaming
+  transfer adapters. A missing path becomes an actionable pending item.
+- Rollback removes only target data created by that run and restores the source's recorded state.
+  If target cleanup needs a retry, it remains visible in the run.
+- A source connection cannot be removed while migration or connection recovery still needs it.
+- Reloading the page reopens the saved run; it does not start another migration.
+
+## Next steps
+
+<Cards>
+  <Card title="Migrate from Coolify / Dokploy / Dokku" href="/docs/guides/migrate-from-coolify-dokploy-dokku" description="Review platform-specific discovery and import behavior." />
+  <Card title="Custom servers" href="/docs/guides/custom-servers" description="Connect servers to a self-hosted installation." />
+  <Card title="Custom domains" href="/docs/guides/custom-domains" description="Configure and verify your destination's domains and TLS." />
+</Cards>

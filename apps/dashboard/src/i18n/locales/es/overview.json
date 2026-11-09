@@ -1,0 +1,144 @@
+{
+  "activity": {
+    "title": "Actividad",
+    "thisWeek": "esta semana",
+    "deploymentSingular": "{count} despliegue",
+    "deploymentPlural": "{count} despliegues"
+  },
+  "apiRequests": {
+    "title": "Solicitudes de API",
+    "last7Days": "Últimos 7 días",
+    "totalRequests": "Solicitudes totales",
+    "requestsTooltip": "{count} solicitudes"
+  },
+  "credits": {
+    "title": "Saldo de créditos",
+    "availableToUse": "Disponible para usar",
+    "spentThisMonth": "Gastado este mes",
+    "add": "Añadir"
+  },
+  "deployments": {
+    "title": "Despliegues",
+    "lastNDays": "últimos {period} días",
+    "deploymentSingular": "{count} despliegue",
+    "deploymentPlural": "{count} despliegues"
+  },
+  "homeTip": {
+    "quickTip": "Consejo rápido",
+    "connectText": "Conecta tu repositorio de GitHub para desplegar automáticamente en cada push.",
+    "connectLabel": "Conectar GitHub",
+    "createText": "Crea tu primer proyecto para empezar a desplegar.",
+    "createLabel": "Nuevo proyecto",
+    "settingsText": "Configura variables de entorno y dominios personalizados en los ajustes del proyecto.",
+    "settingsLabel": "Ajustes del proyecto",
+    "connected": "Conectado",
+    "tips": {
+      "envVars": {
+        "text": "Agrega variables de entorno cifradas y secretos a cualquier proyecto.",
+        "label": "Abrir proyectos"
+      },
+      "customDomain": {
+        "text": "Apunta un dominio personalizado a un proyecto: HTTPS se aprovisiona automáticamente.",
+        "label": "Abrir proyectos"
+      },
+      "autoDeploy": {
+        "text": "Conecta GitHub para desplegar automáticamente con cada push, sin configurar CI.",
+        "label": "Abrir configuración de Git"
+      },
+      "rollback": {
+        "text": "Vuelve a cualquier despliegue anterior con un solo clic.",
+        "label": "Ver despliegues"
+      },
+      "apps": {
+        "text": "Instala aplicaciones autoalojadas como Gitea, n8n y Metabase con un clic.",
+        "label": "Explorar aplicaciones"
+      },
+      "servers": {
+        "text": "Conecta tus propios servidores mediante SSH y despliega en ellos desde aquí.",
+        "label": "Administrar servidores"
+      },
+      "jobs": {
+        "text": "Programa comandos con tareas cron: reintentos, registros en vivo e historial incluidos.",
+        "label": "Abrir tareas"
+      },
+      "backups": {
+        "text": "Configura copias de seguridad automáticas para tus bases de datos y volúmenes.",
+        "label": "Configurar copias de seguridad"
+      },
+      "mail": {
+        "text": "Ejecuta tu propio servidor de correo y webmail, totalmente autoalojado.",
+        "label": "Configurar correo"
+      },
+      "team": {
+        "text": "Invita a compañeros de equipo y delimita su acceso por proyecto.",
+        "label": "Administrar equipo"
+      }
+    }
+  },
+  "welcome": {
+    "title": "Lanza tu primer proyecto",
+    "subtitle": "Conecta un repositorio o empieza desde una plantilla — Openship lo construye, lo despliega y te entrega una URL en vivo en minutos.",
+    "createProject": "Crear proyecto",
+    "importGithub": "Importar desde GitHub",
+    "tipPrefix": "Consejo: pulsa",
+    "tipSuffix": "para ir a cualquier parte"
+  },
+  "header": {
+    "goodMorning": "Buenos días",
+    "goodAfternoon": "Buenas tardes",
+    "goodEvening": "Buenas noches",
+    "greetingWithName": "{greeting}, {name}",
+    "overview": "Resumen",
+    "subtitle": "Supervisa el uso de tu plataforma y gestiona los recursos",
+    "creditsBalance": "Saldo de créditos",
+    "topUp": "Recargar"
+  },
+  "hero": {
+    "title": "Actividad de la plataforma",
+    "subtitle": "Uso de tokens y solicitudes de API",
+    "tokens": "Tokens",
+    "requests": "Solicitudes",
+    "lastNDays": "Últimos {period} días",
+    "agents": "Agentes",
+    "environments": "Entornos",
+    "total": "Total",
+    "production": "Producción",
+    "testing": "Pruebas",
+    "prodCount": "{count} prod",
+    "testCount": "{count} prueba"
+  },
+  "projects": {
+    "title": "Proyectos",
+    "activeDeployments": "Despliegues activos",
+    "total": "Total",
+    "live": "En vivo",
+    "building": "Construyendo",
+    "needAttentionSingular": "{count} proyecto necesita atención",
+    "needAttentionPlural": "{count} proyectos necesitan atención"
+  },
+  "sandboxes": {
+    "title": "Entornos de prueba",
+    "developmentEnvironments": "Entornos de desarrollo",
+    "totalSandboxes": "Entornos de prueba totales",
+    "active": "Activos",
+    "runningCount": "{count} en ejecución",
+    "stoppedCount": "{count} detenidos"
+  },
+  "stats": {
+    "creditsBalance": "Saldo de créditos",
+    "tokenUsage": "Uso de tokens",
+    "thisMonth": "Este mes",
+    "apiRequests": "Solicitudes de API",
+    "last7Days": "Últimos 7 días",
+    "deployments": "Despliegues",
+    "successfulCount": "{count} exitosos",
+    "activeProjects": "Proyectos activos",
+    "sandboxes": "Entornos de prueba",
+    "activeCount": "{count} activos"
+  },
+  "tokenUsage": {
+    "title": "Uso de tokens",
+    "lastNDays": "últimos {period} días",
+    "tokensTooltip": "{count} tokens"
+  }
+}

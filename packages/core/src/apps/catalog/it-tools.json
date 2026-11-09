@@ -1,0 +1,64 @@
+{
+  "available": true,
+  "id": "it-tools",
+  "name": "IT-Tools",
+  "description": "A browser-based collection of developer and sysadmin utilities, with no account setup.",
+  "kind": "template",
+  "logo": "it-tools",
+  "category": "other",
+  "tags": [
+    "developer",
+    "tools",
+    "utilities"
+  ],
+  "framework": "docker-compose",
+  "services": [
+    {
+      "name": "it-tools",
+      "image": "corentinth/it-tools:latest",
+      "exposedPort": 90,
+      "exposed": true,
+      "restart": "unless-stopped",
+      "ports": [
+        "8205:80"
+      ]
+    }
+  ],
+  "connection": {
+    "title": "Open IT-Tools",
+    "description": "A collection of developer and sysadmin utilities. No login, no setup, nothing stored.",
+    "guide": {
+      "defaultMode": "public"
+    },
+    "outputs": [
+      {
+        "id": "url",
+        "label": "IT-Tools",
+        "source": "publicUrl:it-tools",
+        "kind": "url",
+        "recommended": true,
+        "help": "Opens the tool collection. No sign-in required."
+      }
+    ],
+    "firstLogin": {
+      "note": "Nothing to log into and nothing persisted — every tool runs in your browser. Anyone who can reach this URL can use it, so keep it internal if that matters."
+    }
+  },
+  "verified": true,
+  "marketplace": {
+    "features": [
+      {
+        "title": "Developer utilities",
+        "description": "Keep useful engineering tools in one place."
+      },
+      {
+        "title": "Browser interface",
+        "description": "No separate desktop installation is needed."
+      },
+      {
+        "title": "Simple setup",
+        "description": "The app does not require account setup."
+      }
+    ]
+  }
+}

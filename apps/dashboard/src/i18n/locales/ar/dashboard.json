@@ -1,0 +1,270 @@
+{
+  "home": {
+    "goodMorning": "صباح الخير",
+    "goodAfternoon": "مساء الخير",
+    "goodEvening": "مساء الخير",
+    "subtitle": "إليك ما يحدث في مشاريعك",
+    "statsProjects": "المشاريع",
+    "statsDeployments": "عمليات النشر",
+    "statsSuccessful": "الناجحة",
+    "statsFailed": "الفاشلة",
+    "recentProjects": "المشاريع الأخيرة",
+    "yourLatestActivity": "آخر نشاطاتك",
+    "viewAll": "عرض الكل",
+    "noProjectsYet": "لا توجد مشاريع بعد",
+    "createFirstProject": "أنشئ مشروعك الأول",
+    "justNow": "الآن",
+    "minutesAgo": "منذ {n} دقيقة",
+    "hoursAgo": "منذ {n} ساعة",
+    "daysAgo": "منذ {n} يوم",
+    "monthsAgo": "منذ {n} شهر",
+    "statusLive": "مباشر",
+    "statusPaused": "متوقف",
+    "yourProjects": "مشاريعك",
+    "loading": "جارٍ التحميل...",
+    "projectCountOne": "{count} مشروع",
+    "projectCountOther": "{count} مشاريع",
+    "viewAllProjects": "عرض كل المشاريع ({count}) ←",
+    "viewAllApps": "عرض كل التطبيقات ({count}) ←",
+    "greetingName": "{greeting}، {name}",
+    "importGit": "استيراد Git",
+    "importGitDesc": "من مستودع",
+    "mcpDeploy": "نشر MCP",
+    "mcpDeployDesc": "اربط وكيل ذكاء اصطناعي",
+    "settingsCard": "الإعدادات",
+    "settingsCardDesc": "الحساب والفريق",
+    "docs": "التوثيق",
+    "docsDesc": "اعرف المزيد",
+    "activityTitle": "النشاط",
+    "systemStatus": "حالة النظام",
+    "operational": "يعمل",
+    "oneIssue": "مشكلة واحدة",
+    "manyIssues": "{n} مشاكل",
+    "recentTitle": "الأخير",
+    "activityEmpty": "سيظهر نشاطك هنا",
+    "allSystemsOperational": "جميع الأنظمة تعمل",
+    "runningSmoothly": "مشاريعك تعمل بسلاسة",
+    "time": {
+      "justNow": "الآن",
+      "minutes": "منذ {n} دقيقة",
+      "hours": "منذ {n} ساعة",
+      "days": "منذ {n} يوم",
+      "months": "منذ {n} شهر"
+    },
+    "appsEmptyTitle": "لا توجد تطبيقات بعد",
+    "appsEmptyDesc": "بنقرة واحدة وباستضافة ذاتية كاملة — قواعد بيانات وأتمتة وتحليلات وخزائن كلمات مرور وغيرها، تعمل على سيرفراتك."
+  },
+  "nav": {
+    "referrals": "الإحالات",
+    "resources": "مساحات السحابة",
+    "support": "الدعم",
+    "scale": "التوسّع",
+    "home": "الرئيسية",
+    "new-project": "مشروع جديد",
+    "projects": "المشاريع",
+    "deployments": "عمليات النشر",
+    "issues": "المراقبة",
+    "backups": "النسخ الاحتياطية",
+    "domains": "النطاقات",
+    "monitoring": "المراقبة",
+    "servers": "الخوادم",
+    "emails": "البريد الإلكتروني",
+    "settings": "الإعدادات",
+    "billing": "الخطط والفوترة",
+    "audit": "سجل التدقيق",
+    "mailSetup": "إعداد البريد",
+    "mailSetupProgress": "تقدّم الإعداد",
+    "addMailbox": "إضافة صندوق بريد",
+    "webmail": "بريد الويب",
+    "sections": {
+      "help": "المساعدة",
+      "main": "الرئيسية",
+      "settings": "الإعدادات",
+      "infrastructure": "البنية التحتية",
+      "mail": "البريد",
+      "delivery": "التسليم",
+      "system": "النظام",
+      "account": "الحساب"
+    },
+    "apps": "التطبيقات",
+    "jobs": "المهام",
+    "workspaces": "مساحات العمل",
+    "actions": "الإجراءات",
+    "assistant": "وكلاء الذكاء الاصطناعي"
+  },
+  "sidebar": {
+    "expand": "توسيع الشريط الجانبي",
+    "collapse": "طي الشريط الجانبي"
+  },
+  "user": {
+    "logout": "تسجيل الخروج",
+    "loggingOut": "جارٍ تسجيل الخروج…",
+    "profile": "الملف الشخصي",
+    "preferences": "التفضيلات"
+  },
+  "pages": {
+    "apps": {
+      "moreApps": "‏+{count} المزيد",
+      "title": "التطبيقات",
+      "description": "خدمات مُدارة بنقرة واحدة — ثبّت وشغّل Convex وWordPress والبريد وغيرها.",
+      "createButton": "تثبيت تطبيق",
+      "loading": "جارٍ تحميل التطبيقات…",
+      "countOne": "تطبيق واحد ({count})",
+      "countOther": "{count} تطبيقات",
+      "emptyTitle": "ثبّت أول تطبيق لك",
+      "emptyDescription": "انشر قواعد البيانات والأدوات والخدمات من كتالوج التطبيقات.",
+      "popular": "التطبيقات الشائعة",
+      "alsoDeploy": "يمكنك أيضًا نشر",
+      "browseAll": "استعراض كل التطبيقات",
+      "catalogTitle": "تثبيت تطبيق",
+      "catalogDescription": "خدمات مُدارة بنقرة واحدة. اختر واحدة لتثبيتها كتطبيق.",
+      "catalogSearchPlaceholder": "ابحث في التطبيقات…",
+      "catalogNoResults": "لا توجد تطبيقات تطابق بحثك.",
+      "cancel": "إلغاء",
+      "install": "تثبيت",
+      "installing": "جارٍ التثبيت…",
+      "comingSoon": "قريبًا",
+      "configTitle": "تكوين {app}",
+      "nameLabel": "الاسم",
+      "categories": {
+        "all": "الكل",
+        "backend": "الخدمات الخلفية",
+        "database": "قواعد البيانات",
+        "cms": "أنظمة إدارة المحتوى",
+        "analytics": "التحليلات",
+        "automation": "الأتمتة",
+        "mail": "البريد",
+        "other": "أدوات",
+        "ai": "الذكاء الاصطناعي والنماذج"
+      },
+      "addCustom": "إضافة مخصصة",
+      "howToAddApp": "كيفية إضافة تطبيق",
+      "removeCustomApp": "إزالة التطبيق المخصص",
+      "needsUpdateDesc": "قم بتحديث نسخة Openship لتثبيت هذا التطبيق.",
+      "needsUpdateBadge": "يتطلب التحديث",
+      "needsVersionBadge": "يتطلب الإصدار {version}",
+      "removedToast": "تمت إزالة \"{name}\".",
+      "removeFailedToast": "تعذر إزالة التطبيق.",
+      "gpu": {
+        "recommended": "يُنصح باستخدام GPU",
+        "required": "يتطلب NVIDIA GPU",
+        "mode": "المعالجة",
+        "cpu": "المعالج فقط",
+        "nvidia": "بطاقة NVIDIA",
+        "hint": "يتطلب وضع NVIDIA برنامج تشغيل متوافقًا وNVIDIA Container Toolkit على خادمك.",
+        "cloudUnsupported": "هذا التطبيق للاستضافة الذاتية فقط. اختر خادمًا متصلًا تستضيفه بنفسك.",
+        "selfHostedOnly": "استضافة ذاتية فقط",
+        "noGpu": "لم يتم اكتشاف GPU. تحقق من برنامج تشغيل NVIDIA وContainer Toolkit أو اختر وضع CPU."
+      }
+    },
+    "projects": {
+      "title": "المشاريع",
+      "description": "انشر وأدر تطبيقاتك بسهولة",
+      "createButton": "إنشاء مشروع",
+      "stats": {
+        "totalProjects": "إجمالي المشاريع",
+        "liveNow": "مباشر الآن",
+        "avgPerDay": "المعدل اليومي",
+        "successRate": "معدل النجاح"
+      },
+      "searchPlaceholder": "البحث في المشاريع...",
+      "pinnedProjects": "المشاريع المثبتة",
+      "otherProjects": "المشاريع الأخرى",
+      "noResultsFound": "لم يتم العثور على مشاريع مطابقة لـ \"{query}\"",
+      "emptyState": {
+        "title": "ابدأ مشروعك الأول",
+        "description": "استورد من مستودع Git، استخدم قالب، أو انشر من سطر الأوامر. ستظهر مشاريعك هنا.",
+        "createProject": "إنشاء مشروع",
+        "browseTemplates": "تصفح القوالب",
+        "zeroConfig": "نشر بدون إعداد",
+        "instant": "فوري",
+        "instantDesc": "انشر في ثوانٍ",
+        "global": "عالمي",
+        "globalDesc": "100+ منطقة حافة",
+        "previews": "معاينات",
+        "previewsDesc": "رابط لكل فرع",
+        "rollbacks": "التراجع",
+        "rollbacksDesc": "استرجاع بنقرة واحدة",
+        "commandPalette": "أو اضغط {key} لفتح لوحة الأوامر"
+      },
+      "view": {
+        "label": "العرض",
+        "list": "قائمة",
+        "grid": "شبكة"
+      }
+    },
+    "deployments": {
+      "title": "عمليات النشر",
+      "description": "عرض وإدارة سجل النشر."
+    },
+    "domains": {
+      "title": "النطاقات",
+      "description": "إدارة النطاقات المخصصة وسجلات DNS."
+    },
+    "monitoring": {
+      "title": "المراقبة",
+      "description": "السجلات والمقاييس وفحوصات الصحة لخدماتك."
+    },
+    "servers": {
+      "title": "الخوادم",
+      "description": "إدارة خوادم النشر والبنية التحتية."
+    },
+    "settings": {
+      "title": "الإعدادات",
+      "description": "إعدادات الحساب والفريق والمنصة."
+    },
+    "billing": {
+      "title": "الفوترة والاستخدام",
+      "description": "إدارة اشتراكك واستخدامك وطرق الدفع."
+    }
+  },
+  "quickLinks": {
+    "title": "الإجراءات السريعة",
+    "subtitle": "انتقل إلى المهام الشائعة",
+    "deployProject": {
+      "title": "نشر مشروع",
+      "description": "استيراد من Git"
+    },
+    "projects": {
+      "title": "المشاريع",
+      "description": "جميع المشاريع"
+    },
+    "deployments": {
+      "title": "عمليات النشر",
+      "description": "سجل البناء"
+    },
+    "settings": {
+      "title": "الإعدادات",
+      "description": "إدارة الوصول"
+    },
+    "domains": {
+      "title": "النطاقات",
+      "description": "النطاقات المخصصة"
+    },
+    "billing": {
+      "title": "الفوترة والاستخدام",
+      "description": "الاستخدام والخطط"
+    }
+  },
+  "investigation": {
+    "action": "تحقيق باستخدام الذكاء الاصطناعي",
+    "deploymentTitle": "تحقّق من هذا النشر",
+    "issueTitle": "تحقّق من مشكلة التطبيق",
+    "description": "راجع الطلب وأضف أي تفاصيل مفيدة، ثم أرسله إلى مساعدك.",
+    "setup": "طلب التحقيق جاهز. فعّل المساعد واربط وكيلًا للمتابعة.",
+    "invalid": "رابط التحقيق غير صالح أو يخص مساحة عمل أو حسابًا آخر. افتح المشكلة الأصلية في مساحة عملها وحاول مجددًا.",
+    "back": "فتح المساعد",
+    "deploymentPrompt": "تحقّق من فشل النشر {deploymentId}.",
+    "issuePrompt": "تحقّق من مشكلة التطبيق {issueId}.",
+    "appContext": "معرّف التطبيق: {projectId}.",
+    "instructions": "استخدم أدوات OpenShip لفحص الحالة الحالية والسجلات ذات الصلة. اشرح السبب المرجّح مع الأدلة واقترح الخطوة التالية. حقّق أولًا دون إجراء أي تغييرات. إذا كان الوصول غير كافٍ، فاطلب الصلاحيات المحددة اللازمة.",
+    "fixAction": "إصلاح بالذكاء الاصطناعي",
+    "fixTitle": "إصلاح مشكلة التطبيق",
+    "securityPrompt": "تحقق من التنبيه الأمني {advisoryId} وعالجه لهذا التطبيق. اقرأ نتائج الأمان الحالية في OpenShip والإرشادات الرسمية، وافحص الخدمات المتأثرة وإعداداتها الفعلية، ثم طبق معالجة دائمة ضمن الصلاحيات المعتمدة. أعد نشر العمليات المتأثرة عند الحاجة وتحقق من النتيجة. تطابق إصدار بيئة التشغيل وحده لا يثبت قابلية استغلال التطبيق. لا تخفِ التحذير ولا تدّعِ المعالجة دون دليل. تحقق أولًا مما إذا كان التنبيه ينطبق. إذا لم ينطبق، اعرض الدليل ولا تغيّر الخدمات.",
+    "fixPrompt": "تحقّق من مشكلة التطبيق {issueId} وأصلحها.",
+    "fixInstructions": "استخدم أدوات OpenShip لفحص المشكلة الحالية والحالة والسجلات ذات الصلة. حدّد السبب، وطبّق إصلاحًا مناسبًا ضمن صلاحياتك المعتمدة، وتحقّق من النتيجة. إذا نقصت صلاحية أو احتجت إلى قرار، اعرض المراجعة المناسبة داخل المحادثة. وضّح التغييرات وأي مشكلات متبقية، ولا تؤكد التعافي إلا بدليل فعلي.",
+    "reportAction": "تقرير الحالة بالذكاء الاصطناعي",
+    "reportTitle": "تقرير حالة مساحة العمل",
+    "reportPrompt": "راجع الحالة الحالية لتطبيقات مساحة العمل وعمليات نشرها وخدماتها والخوادم المتاحة باستخدام أدوات المراقبة والحالة في OpenShip. لخّص ما يعمل بشكل سليم وما يحتاج إلى اهتمام، مع الأدلة وأهم الخطوات التالية. وضّح بيانات المراقبة القديمة أو غير المتاحة وحدود الوصول. خلو قائمة المشكلات لا يثبت سلامة النظام. هذا تقرير للقراءة فقط: لا تغيّر الموارد ولا تطلب تشخيصات إدارية على مستوى المنصة بأكملها."
+  }
+}

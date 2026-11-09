@@ -1,0 +1,413 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * Priority tests for the SINGLE token-issuance entry point: `tokenFor`
+ * (github.token.ts). Every credential SOURCE it reads is mocked, so these
+ * assert ONLY the priority/refusal wiring per (mode × purpose):
+ *
+ *   - CLOUD_MODE            : project → user-pat → app → oauth → null   (no gh)
+ *   - self-hosted "local"   : gh-cli → app → project → user-pat → oauth → null
+ *   - self-hosted "remote"  : project → user-pat → app → null   (gh REFUSED, no oauth)
+ *
+ * Plus a drift-guard: `canResolveTokenFor` (the preflight existence-mirror)
+ * must report the SAME source `tokenFor` would mint.
+ */
+
+const { envMock, findProjectById, findSettingsByUser, decrypt, ghAuth, canUseGitHubRepo, getLocalGhToken, serverCredential, serverProbe, serverAllowed, serverTarget, listServers } =
+  vi.hoisted(() => ({
+    envMock: { CLOUD_MODE: false, GITHUB_AUTH_MODE: undefined } as {
+      CLOUD_MODE: boolean;
+      GITHUB_AUTH_MODE?: string;
+    },
+    serverCredential: vi.fn(), serverProbe: vi.fn(), serverAllowed: vi.fn(), serverTarget: vi.fn(), listServers: vi.fn(),
+    findProjectById: vi.fn(),
+    findSettingsByUser: vi.fn(),
+    decrypt: vi.fn((s: string) => s.replace(/^ENC:/, "")),
+    ghAuth: {
+      getInstallationToken: vi.fn(),
+      getInstallationId: vi.fn(),
+      getInstallationIdByOrg: vi.fn(),
+      getUserToken: vi.fn(),
+    },
+    canUseGitHubRepo: vi.fn(),
+    getLocalGhToken: vi.fn(),
+  }));
+
+vi.mock("@repo/platform/engine/lib/authorization", () => ({ authorization: { checkPermissionOnResource: serverAllowed } }));
+vi.mock("@repo/platform/engine/lib/server-target", () => ({ requireOrgServer: serverTarget }));
+vi.mock("@repo/platform/engine/modules/github/server-github.service", () => ({
+  resolveServerGitCredential: serverCredential, canResolveServerGitCredential: serverProbe,
+}));
+vi.mock("@repo/platform/engine/config/env", () => ({ env: envMock }));
+vi.mock("@repo/db", () => ({
+  repos: {
+    server: { findLocal: async () => undefined, listByOrganization: listServers },
+    project: { findById: findProjectById },
+    settings: { findByUser: findSettingsByUser },
+  },
+}));
+vi.mock("@repo/platform/engine/lib/encryption", () => ({ decrypt }));
+vi.mock("@repo/platform/engine/modules/github/github.auth", () => ghAuth);
+vi.mock("@repo/platform/engine/modules/github/github-access", () => ({ canUseGitHubRepo }));
+vi.mock("@repo/platform/engine/modules/github/github.local-auth", () => ({ getLocalGhToken }));
+// NOT mocked: @repo/core — requireTokenFor needs the real AppError.
+
+import { tokenFor, canResolveTokenFor, requireTokenFor } from "@repo/platform/engine/modules/github/github.token";
+
+const ctxNoOrg = { userId: "u1" } as any; // zero-auth / single-user operator
+const ctxOrg = { userId: "u1", organizationId: "o1" } as any;
+const withOwner = { projectId: "p1", owner: "acme", repo: "app" };
+
+// ── Source setters (each returns the credential when "present", else nothing) ──
+function setProjectPat(tok: string | null) {
+  findProjectById.mockResolvedValue(tok ? { cloneTokenEncrypted: `ENC:${tok}` } : null);
+}
+function setSettings(opts: { userPat?: string | null; asDefault?: boolean; ghOptIn?: boolean }) {
+  findSettingsByUser.mockResolvedValue({
+    cloneTokenEncrypted: opts.userPat ? `ENC:${opts.userPat}` : null,
+    cloneTokenAsDefault: opts.asDefault ?? true,
+    ghCliOperatorOptedIn: opts.ghOptIn ?? false,
+  });
+}
+function setApp(present: boolean) {
+  canUseGitHubRepo.mockResolvedValue(present);
+  ghAuth.getInstallationToken.mockResolvedValue(present ? "apptok" : null);
+  ghAuth.getInstallationId.mockResolvedValue(present ? 42 : null);
+  ghAuth.getInstallationIdByOrg.mockResolvedValue(present ? 42 : null);
+}
+function setOauth(tok: string | null) {
+  ghAuth.getUserToken.mockResolvedValue(tok);
+}
+function setGh(tok: string | null) {
+  getLocalGhToken.mockResolvedValue(tok);
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  envMock.CLOUD_MODE = false;
+  envMock.GITHUB_AUTH_MODE = undefined;
+  serverCredential.mockResolvedValue(null);
+  serverProbe.mockResolvedValue(false);
+  serverAllowed.mockResolvedValue(true);
+  listServers.mockResolvedValue([]);
+  serverTarget.mockResolvedValue({ id: "s1", organizationId: "o1" });
+  // Baseline: nothing resolves.
+  setProjectPat(null);
+  findSettingsByUser.mockResolvedValue(null);
+  setApp(false);
+  setOauth(null);
+  setGh(null);
+  decrypt.mockImplementation((s: string) => s.replace(/^ENC:/, ""));
+});
+
+describe("tokenFor — CLOUD_MODE (project → user-pat → app → oauth)", () => {
+  beforeEach(() => {
+    envMock.CLOUD_MODE = true;
+  });
+
+  it("project PAT wins over everything", async () => {
+    setProjectPat("projtok");
+    setSettings({ userPat: "usertok" });
+    setApp(true);
+    setOauth("oauthtok");
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toEqual({ token: "projtok", source: "project" });
+    expect(getLocalGhToken).not.toHaveBeenCalled(); // gh never loads on SaaS
+  });
+
+  it("falls to user-pat when no project token", async () => {
+    setSettings({ userPat: "usertok" });
+    setApp(true);
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toEqual({ token: "usertok", source: "user-pat" });
+  });
+
+  it("falls to the App installation when no PAT", async () => {
+    setApp(true);
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toEqual({ token: "apptok", source: "app-installation" });
+  });
+
+  it("falls to OAuth when no PAT and no App", async () => {
+    setOauth("oauthtok");
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toEqual({ token: "oauthtok", source: "user-oauth" });
+  });
+
+  it("returns null when nothing resolves", async () => {
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toBeNull();
+  });
+});
+
+describe("tokenFor — self-hosted local (gh-cli → app → project → user-pat → oauth)", () => {
+  it("gh CLI wins over App and PATs (operator, no org)", async () => {
+    setGh("ghtok");
+    setApp(true);
+    setProjectPat("projtok");
+    setSettings({ userPat: "usertok" });
+    expect(await tokenFor(ctxNoOrg, "local", withOwner)).toEqual({ token: "ghtok", source: "gh-cli" });
+  });
+
+  // `only` exists for endpoints where exactly ONE credential can do the job.
+  // GitHub's Checks API takes App installation tokens only, and the walk above
+  // returns the FIRST token that resolves without ever retrying — so a working
+  // gh CLI silently shadowed a working App installation and every check run
+  // 403'd forever. Pinning is the fix; these two cases are what it must hold.
+  it("`only` pins past a resolvable gh token to the App", async () => {
+    setGh("ghtok");
+    setApp(true);
+    setProjectPat("projtok");
+    expect(
+      await tokenFor(ctxNoOrg, "local", { ...withOwner, only: ["app-installation"] }),
+    ).toEqual({ token: "apptok", source: "app-installation" });
+  });
+
+  it("`only` narrows, never substitutes — no App means null, not the next credential", async () => {
+    setGh("ghtok");
+    setProjectPat("projtok");
+    setSettings({ userPat: "usertok" });
+    expect(
+      await tokenFor(ctxNoOrg, "local", { ...withOwner, only: ["app-installation"] }),
+    ).toBeNull();
+  });
+
+  it("App wins once gh is absent", async () => {
+    setApp(true);
+    setProjectPat("projtok");
+    expect(await tokenFor(ctxNoOrg, "local", withOwner)).toEqual({ token: "apptok", source: "app-installation" });
+  });
+
+  it("skips a rejected source in both resolution and availability checks", async () => {
+    setGh("rejected-gh-token");
+    setApp(true);
+    const target = { ...withOwner, exclude: ["gh-cli" as const] };
+    expect(await tokenFor(ctxNoOrg, "local", target)).toEqual({ token: "apptok", source: "app-installation" });
+    expect(await canResolveTokenFor(ctxNoOrg, "local", target)).toBe("app-installation");
+    expect(getLocalGhToken).not.toHaveBeenCalled();
+    expect(canUseGitHubRepo).toHaveBeenCalledWith(ctxNoOrg, expect.objectContaining({ owner: "acme", repo: "app" }), "read", expect.anything());
+  });
+
+  it("exclusions cannot expand a pinned credential or bypass a denied App grant", async () => {
+    setGh("ghtok");
+    setApp(false);
+    expect(await tokenFor(ctxOrg, "local", { ...withOwner, exclude: ["gh-cli"] })).toBeNull();
+    setApp(true);
+    expect(await tokenFor(ctxOrg, "local", { ...withOwner, only: ["gh-cli"], exclude: ["gh-cli"] })).toBeNull();
+    expect(await canResolveTokenFor(ctxOrg, "local", { ...withOwner, only: ["gh-cli"], exclude: ["gh-cli"] })).toBeNull();
+    expect(ghAuth.getInstallationToken).not.toHaveBeenCalled();
+  });
+
+  it("project PAT wins once gh + App are absent", async () => {
+    setProjectPat("projtok");
+    setSettings({ userPat: "usertok" });
+    expect(await tokenFor(ctxNoOrg, "local", withOwner)).toEqual({ token: "projtok", source: "project" });
+  });
+
+  it("user PAT then OAuth as the tail", async () => {
+    setSettings({ userPat: "usertok" });
+    expect(await tokenFor(ctxNoOrg, "local", withOwner)).toEqual({ token: "usertok", source: "user-pat" });
+    setSettings({ userPat: null });
+    setOauth("oauthtok");
+    expect(await tokenFor(ctxNoOrg, "local", withOwner)).toEqual({ token: "oauthtok", source: "user-oauth" });
+  });
+
+  it("a user PAT NOT marked default is ignored", async () => {
+    setSettings({ userPat: "usertok", asDefault: false });
+    expect(await tokenFor(ctxNoOrg, "local", withOwner)).toBeNull();
+  });
+});
+
+describe("tokenFor — gh-CLI authorization gate (HIGH #7)", () => {
+  it("refuses gh for a REMOTE build even on self-hosted with gh present", async () => {
+    setGh("ghtok");
+    // remote self-hosted: gh must NEVER be returned; nothing else present → null.
+    expect(await tokenFor(ctxNoOrg, "remote", withOwner)).toBeNull();
+  });
+
+  it("refuses gh for a multi-user org member who hasn't opted in (local)", async () => {
+    setGh("ghtok");
+    setSettings({ ghOptIn: false });
+    setProjectPat("projtok");
+    // org context + not opted in → gh skipped → falls to project PAT.
+    expect(await tokenFor(ctxOrg, "local", withOwner)).toEqual({ token: "projtok", source: "project" });
+  });
+
+  it("allows gh for an org operator who opted in (local)", async () => {
+    setGh("ghtok");
+    setSettings({ ghOptIn: true });
+    expect(await tokenFor(ctxOrg, "local", withOwner)).toEqual({ token: "ghtok", source: "gh-cli" });
+  });
+
+  it("allows gh in instance-wide cli auth mode (local)", async () => {
+    envMock.GITHUB_AUTH_MODE = "cli";
+    setGh("ghtok");
+    expect(await tokenFor(ctxOrg, "local", withOwner)).toEqual({ token: "ghtok", source: "gh-cli" });
+  });
+});
+
+describe("tokenFor — self-hosted remote (project → user-pat → app, gh refused, no oauth)", () => {
+  it("project PAT wins", async () => {
+    setProjectPat("projtok");
+    setSettings({ userPat: "usertok" });
+    setApp(true);
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toEqual({ token: "projtok", source: "project" });
+  });
+
+  it("user PAT then App", async () => {
+    setSettings({ userPat: "usertok" });
+    setApp(true);
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toEqual({ token: "usertok", source: "user-pat" });
+    setSettings({ userPat: null });
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toEqual({ token: "apptok", source: "app-installation" });
+  });
+
+  it("does NOT fall through to OAuth on self-hosted remote", async () => {
+    setOauth("oauthtok");
+    expect(await tokenFor(ctxOrg, "remote", withOwner)).toBeNull();
+  });
+});
+
+describe("tokenFor — App installation mint failures", () => {
+  const githubError = (status: number, credentialRejected: boolean) =>
+    Object.assign(new Error(`GitHub API error (${status})`), {
+      name: "GitHubApiError",
+      status,
+      credentialRejected,
+    });
+
+  it("rethrows a transient mint failure instead of reporting no credential", async () => {
+    // A GitHub 5xx while minting says nothing about the installation. Reading it
+    // as "no token" made the Actions runner reconciler cancel running jobs.
+    setApp(true);
+    setOauth("oauthtok");
+    const outage = githubError(500, false);
+    ghAuth.getInstallationToken.mockRejectedValue(outage);
+    await expect(tokenFor(ctxOrg, "local", withOwner)).rejects.toBe(outage);
+    await expect(requireTokenFor(ctxOrg, "local", withOwner)).rejects.toBe(outage);
+  });
+
+  it("still falls through to the next credential when GitHub rejects the installation", async () => {
+    setApp(true);
+    setOauth("oauthtok");
+    ghAuth.getInstallationToken.mockRejectedValue(githubError(403, true));
+    expect(await tokenFor(ctxOrg, "local", withOwner)).toEqual({ token: "oauthtok", source: "user-oauth" });
+  });
+});
+
+describe("requireTokenFor — actionable throw", () => {
+  it("throws GITHUB_REMOTE_TOKEN_REQUIRED for remote with no credential", async () => {
+    await expect(requireTokenFor(ctxOrg, "remote", withOwner)).rejects.toMatchObject({
+      code: "GITHUB_REMOTE_TOKEN_REQUIRED",
+      statusCode: 403,
+    });
+  });
+});
+
+describe("canResolveTokenFor — drift guard (same source tokenFor mints)", () => {
+  const rows: Array<{ name: string; cloud?: boolean; ctx: any; purpose: "local" | "remote"; setup: () => void; expected: string | null }> = [
+    { name: "cloud project", cloud: true, ctx: ctxOrg, purpose: "remote", setup: () => setProjectPat("t"), expected: "project" },
+    { name: "cloud app", cloud: true, ctx: ctxOrg, purpose: "remote", setup: () => setApp(true), expected: "app-installation" },
+    { name: "cloud oauth", cloud: true, ctx: ctxOrg, purpose: "remote", setup: () => setOauth("t"), expected: "user-oauth" },
+    { name: "local gh", ctx: ctxNoOrg, purpose: "local", setup: () => { setGh("t"); setApp(true); }, expected: "gh-cli" },
+    { name: "local app", ctx: ctxNoOrg, purpose: "local", setup: () => setApp(true), expected: "app-installation" },
+    { name: "remote project", ctx: ctxOrg, purpose: "remote", setup: () => setProjectPat("t"), expected: "project" },
+    { name: "remote none", ctx: ctxOrg, purpose: "remote", setup: () => {}, expected: null },
+  ];
+
+  for (const row of rows) {
+    it(`${row.name}: canResolveTokenFor === tokenFor.source`, async () => {
+      envMock.CLOUD_MODE = !!row.cloud;
+      row.setup();
+      const minted = await tokenFor(row.ctx, row.purpose, withOwner);
+      const previewed = await canResolveTokenFor(row.ctx, row.purpose, withOwner);
+      expect(previewed).toBe(row.expected);
+      expect(minted?.source ?? null).toBe(row.expected);
+    });
+  }
+});
+
+
+describe("server credential repository reads (#1500)", () => {
+  const target = { ...withOwner, serverId: "s1" };
+  beforeEach(() => {
+    canUseGitHubRepo.mockResolvedValue(true);
+    serverCredential.mockResolvedValue({ token: "server-pat" });
+    serverProbe.mockResolvedValue(true);
+  });
+  it("uses the same server credential resolver as deployment, for both mint and preflight", async () => {
+    expect(await tokenFor(ctxOrg, "local", target)).toEqual({ token: "server-pat", source: "server-token" });
+    expect(await canResolveTokenFor(ctxOrg, "local", target)).toBe("server-token");
+    expect(serverCredential).toHaveBeenCalledWith({ ctx: ctxOrg, serverId: "s1", owner: "acme", repo: "app", tokenOnly: true });
+    expect(serverProbe).toHaveBeenCalledWith("s1", { tokenOnly: true });
+  });
+  it("keeps normal account credentials first", async () => {
+    setSettings({ userPat: "account-pat" });
+    expect(await tokenFor(ctxOrg, "local", target)).toEqual({ token: "account-pat", source: "user-pat" });
+    expect(serverCredential).not.toHaveBeenCalled();
+  });
+  it("refuses borrowing without both repository and server authority", async () => {
+    canUseGitHubRepo.mockResolvedValue(false);
+    expect(await tokenFor(ctxOrg, "local", target)).toBeNull();
+    canUseGitHubRepo.mockResolvedValue(true);
+    serverAllowed.mockResolvedValue(false);
+    expect(await tokenFor(ctxOrg, "local", target)).toBeNull();
+    expect(await canResolveTokenFor(ctxOrg, "local", target)).toBeNull();
+    expect(serverCredential).not.toHaveBeenCalled();
+    expect(serverProbe).not.toHaveBeenCalled();
+  });
+  it.each([
+    { ...target, op: "write" as const }, { ...target, repo: undefined },
+    { ...target, only: ["app-installation" as const] },
+    { ...target, exclude: ["server-token" as const] }, { ...target, serverId: undefined },
+  ])("does not widen authority or bypass pins: %j", async input => {
+    expect(await tokenFor(ctxOrg, "local", input)).toBeNull();
+    expect(await canResolveTokenFor(ctxOrg, "local", input)).toBeNull();
+    expect(serverCredential).not.toHaveBeenCalled();
+  });
+  it("falls back to a writable connected server with a stored credential when there is no local default (#1630)", async () => {
+    listServers.mockResolvedValue([{ id: "s2", isLocal: false }]);
+    serverProbe.mockResolvedValue(true);
+    serverCredential.mockResolvedValue({ token: "server-pat" });
+    expect(await tokenFor(ctxOrg, "local", withOwner)).toEqual({ token: "server-pat", source: "server-token" });
+    expect(await canResolveTokenFor(ctxOrg, "local", withOwner)).toBe("server-token");
+    expect(serverCredential).toHaveBeenCalledWith({ ctx: ctxOrg, serverId: "s2", owner: "acme", repo: "app", tokenOnly: true });
+    expect(serverProbe).toHaveBeenCalledWith("s2", { tokenOnly: true });
+  });
+  it("skips connected servers the caller cannot write to or that hold no credential (#1630)", async () => {
+    listServers.mockResolvedValue([
+      { id: "s-no-write", isLocal: false },
+      { id: "s-no-cred", isLocal: false },
+      { id: "s-good", isLocal: false },
+    ]);
+    serverAllowed.mockImplementation(async (_ctx, resource) => resource.resourceId !== "s-no-write");
+    serverProbe.mockImplementation(async (id) => id === "s-good");
+    expect(await tokenFor(ctxOrg, "local", withOwner)).toEqual({
+      token: "server-pat",
+      source: "server-token",
+    });
+    expect(await canResolveTokenFor(ctxOrg, "local", withOwner)).toBe("server-token");
+    expect(serverCredential).toHaveBeenCalledWith({
+      ctx: ctxOrg,
+      serverId: "s-good",
+      owner: "acme",
+      repo: "app",
+      tokenOnly: true,
+    });
+  });
+  it("requires the same explicit selection for mint and preflight when several server tokens are eligible", async () => {
+    listServers.mockResolvedValue([
+      { id: "s1", isLocal: false },
+      { id: "s2", isLocal: false },
+    ]);
+    const conflict = { statusCode: 409, code: "GITHUB_SERVER_SELECTION_REQUIRED" };
+    await expect(tokenFor(ctxOrg, "local", withOwner)).rejects.toMatchObject(conflict);
+    await expect(canResolveTokenFor(ctxOrg, "local", withOwner)).rejects.toMatchObject(conflict);
+    expect(serverCredential).not.toHaveBeenCalled();
+    expect(await tokenFor(ctxOrg, "local", target)).toEqual({
+      token: "server-pat",
+      source: "server-token",
+    });
+  });
+  it("never ships a server token through the generic remote chain or uses one in Cloud", async () => {
+    expect(await tokenFor(ctxOrg, "remote", target)).toBeNull();
+    envMock.CLOUD_MODE = true;
+    expect(await tokenFor(ctxOrg, "local", target)).toBeNull();
+    expect(serverCredential).not.toHaveBeenCalled();
+  });
+});

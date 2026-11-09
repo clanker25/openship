@@ -1,0 +1,291 @@
+{
+  "backups": {
+    "section": "Yedekleme zamanlamaları",
+    "sectionDesc": "Proje veya servis bazında otomatik zamanlanmış yedeklemeler. Her projenin Yedekler sekmesi altında yönetilir.",
+    "projectDefault": "Proje varsayılanı",
+    "mailServer": "E-posta sunucusu",
+    "manage": "Yedeklerde Yönet",
+    "badge": "Yedekleme",
+    "never": "Hiç çalıştırılmadı",
+    "status": {
+      "succeeded": "Başarılı",
+      "failed": "Başarısız",
+      "cancelled": "İptal Edildi",
+      "running": "Çalışıyor"
+    }
+  },
+  "title": "Görevler",
+  "subtitle": "Sunucularınızda çalışan dahili bakım ve özel komutlar.",
+  "empty": "Henüz zamanlanmış görev yok.",
+  "searchPlaceholder": "Görevlerde ara…",
+  "noResults": "Filtrelerinizle eşleşen görev bulunamadı.",
+  "overview": {
+    "title": "Hızlı bakış",
+    "subtitle": "Bu kurulumdaki görevler",
+    "all": "Tüm görevler",
+    "running": "Çalışıyor",
+    "failed": "Başarısız",
+    "scheduled": "Zamanlanmış",
+    "disabled": "Pasif"
+  },
+  "loadFailed": "Görevler yüklenemedi.",
+  "kind": {
+    "system": "Sistem",
+    "custom": "Özel"
+  },
+  "fields": {
+    "schedule": "Zamanlama",
+    "nextRun": "Sonraki çalışma",
+    "lastRun": "Son çalışma",
+    "never": "Hiç çalıştırılmadı",
+    "notScheduled": "Zamanlanmadı"
+  },
+  "status": {
+    "success": "Başarılı",
+    "failed": "Başarısız",
+    "running": "Çalışıyor"
+  },
+  "actions": {
+    "run": "Şimdi çalıştır",
+    "running": "Çalıştırılıyor…",
+    "edit": "Zamanlamayı düzenle",
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "enable": "Etkinleştir",
+    "disable": "Devre dışı bırak",
+    "viewLogs": "Günlükler"
+  },
+  "cronHint": "Standart 5 alanlı cron (dakika saat gün ay haftanın_günü), UTC.",
+  "toast": {
+    "ran": "{label} başlatıldı.",
+    "ranFailed": "{label} çalıştırılamadı.",
+    "saved": "{label} için zamanlama güncellendi.",
+    "saved2": "Görev güncellendi.",
+    "saveFailed": "{label} güncellenemedi.",
+    "enabled": "{label} etkinleştirildi.",
+    "disabled": "{label} devre dışı bırakıldı.",
+    "toggleFailed": "{label} güncellenemedi.",
+    "title": "Görevler",
+    "created": "Görev oluşturuldu.",
+    "createFailed": "Görev oluşturulamadı.",
+    "deleted": "Görev silindi.",
+    "deleteFailed": "Görev silinemedi."
+  },
+  "newJob": "Yeni görev",
+  "sections": {
+    "system": "Sistem görevleri",
+    "systemDesc": "Bu kurulumdaki yerleşik bakım görevleri.",
+    "custom": "Özel görevler",
+    "customDesc": "Sunucularınızda bir zamanlamaya göre çalıştırdığınız komutlar."
+  },
+  "customEmpty": {
+    "title": "Henüz özel görev yok",
+    "desc": "Sunucularınızdan birinde bir zamanlamaya göre, bir defalık veya bir olaya bağlı olarak komut çalıştırın — tekrar deneme, gizli veriler, canlı günlükler ve bildirimler ile.",
+    "cta": "Görev oluştur",
+    "docs": "Dokümanlar"
+  },
+  "create": {
+    "title": "Yeni görev",
+    "name": "Ad",
+    "namePlaceholder": "Gece veritabanı temizliği (vacuum)",
+    "server": "Sunucu",
+    "servers": "Sunucular",
+    "noServers": "Henüz sunucu bağlanmadı — önce bir tane ekleyin.",
+    "command": "Komut",
+    "commandPlaceholder": "pg_dump ... > /backups/backup.sql",
+    "commandHint": "Seçilen her sunucuda çalışır. Konteyner görevleri için docker run --rm kullanın.",
+    "cloudServersHint": "Mevcut bir sunucuyu kullanın veya kendi aboneliği olan ayrı bir sunucu ekleyin.",
+    "cloudUsageHint": "Görevler, seçilen sunucunun kapasitesini ve kullanım kotasını paylaşır. Çalışması için aboneliği etkin olmalıdır.",
+    "addDedicatedServer": "Ayrı bir sunucu ekle",
+    "scheduleType": "Ne zaman çalışacak",
+    "scheduleTypes": {
+      "recurring": "Bir zamanlamaya göre",
+      "once": "Bir defa",
+      "manual": "Manuel"
+    },
+    "sections": {
+      "basics": "Temel Bilgiler",
+      "schedule": "Zamanlama",
+      "servers": "Hedef sunucular",
+      "reliability": "Güvenilirlik",
+      "environment": "Ortam",
+      "triggers": "Bağımlılıklar ve tetikleyiciler",
+      "notifications": "Bildirimler"
+    },
+    "schedule": "Zamanlama (cron)",
+    "runAt": "Çalıştırılma zamanı",
+    "manualHint": "Yalnızca tetiklendiğinde çalışır — Şimdi Çalıştır, bir bağımlılık veya bir olay.",
+    "timeout": "Zaman aşımı (sn)",
+    "retryAttempts": "Maksimum deneme",
+    "retryBackoff": "Denemeler arası bekleme (sn)",
+    "advanced": "Gelişmiş",
+    "env": "Ortam değişkenleri",
+    "addVar": "Değişken ekle",
+    "secrets": "Gizli Veriler (Secrets)",
+    "addSecret": "Gizli veri ekle",
+    "replaceSecrets": "Gizli verileri değiştir",
+    "secretsSet": "gizli veri ayarlandı",
+    "noSecrets": "Gizli veri ayarlanmadı.",
+    "dependencies": "Şundan sonra çalıştır",
+    "dependenciesHint": "Bu görev, seçilen görev(ler) başarıyla tamamlandıktan sonra çalışır.",
+    "triggers": "Olay tetikleyicileri",
+    "notifications": "Bildirimler",
+    "noChannels": "Henüz bildirim kanalı yok. İzleme → Bildirimler bölümünden ekleyin.",
+    "notificationsHint": "Bu görev için genel bildirim ayarlarını geçersiz kılar.",
+    "submit": "Görev oluştur",
+    "creating": "Kaydediliyor…",
+    "cancel": "İptal",
+    "needServer": "Önce bir sunucu bağlayın",
+    "pasteEnv": ".env Yapıştır",
+    "uploadEnv": ".env Yükle",
+    "envPasteEmpty": "Değişken bulunamadı",
+    "comingSoon": "Yakında",
+    "setupChannel": "Bir kanal kurun",
+    "customTriggerSoon": "Özel tetikleyici",
+    "docsLink": "Görevler hakkında bilgi edinin",
+    "docsBody": "Zamanlamalar, tekrar denemeler, gizli veriler ve bildirimler",
+    "summary": {
+      "title": "Özet",
+      "command": "Komut",
+      "schedule": "Zamanlama",
+      "targets": "Hedefler",
+      "retry": "Tekrar Deneme",
+      "timeout": "Zaman Aşımı",
+      "notify": "Bildirimler",
+      "none": "—",
+      "retryOff": "Yok"
+    }
+  },
+  "edit": {
+    "title": "Görevi düzenle",
+    "action": "Düzenle",
+    "save": "Değişiklikleri kaydet"
+  },
+  "detail": {
+    "back": "Görevlere dön",
+    "tabs": {
+      "overview": "Genel Bakış",
+      "runs": "Çalıştırmalar"
+    },
+    "servers": "Sunucular",
+    "retry": "Tekrar Deneme",
+    "retryValue": "{n} deneme, {s} sn bekleme",
+    "notifyValue": "{s} durumlarında {c} kanal",
+    "onceAt": "Bir defa çalıştırılma:",
+    "noRuns": "Henüz çalışma yok."
+  },
+  "delete": {
+    "action": "Sil",
+    "confirm": "Bu görev silinsin mi?",
+    "deleting": "Siliniyor…"
+  },
+  "logs": {
+    "title": "Çalıştırma günlükleri",
+    "streaming": "Canlı akış…",
+    "empty": "Henüz çıktı yok.",
+    "close": "Kapat",
+    "exit": "Çıkış kodu {code}"
+  },
+  "cloudSubtitle": "Yönetilen sunucularınızda zamanlanmış ve isteğe bağlı komutlar.",
+  "systemJobLabels": {
+    "github:deployment-checks": "GitHub dağıtım kontrolleri",
+    "cloud:workspace-recovery": "Bulut çalışma alanı işlemleri",
+    "ssl:renew": "SSL sertifikası yenileme",
+    "projects:orphan-gc": "Sahipsiz kaynak temizliği",
+    "images:gc": "Dağıtım yapıtı temizliği",
+    "domains:verify-pending": "Özel alan adlarını doğrula",
+    "updates:scan": "Güncelleme taraması",
+    "backups:retention-prune": "Süresi dolmuş yedekleri temizle",
+    "backups:stale-sweep": "Askıda kalan yedekleri eşitle",
+    "prune:audit": "Denetim günlüğünü temizle",
+    "prune:incidents": "Olay geçmişini temizle",
+    "sampler:resources": "Kaynak kullanımı örnekleyici",
+    "system:analytics-scraper": "Analitik toplayıcı",
+    "build-cache:gc": "Derleme önbelleği temizliği",
+    "cloud:https-health": "Bulut HTTPS durumu",
+    "system:server-modules": "Sunucu modülü taraması",
+    "system:server-containers": "Sunucu konteyner taraması",
+    "system:health-watch": "Sağlık kontrolü taraması",
+    "jobs:due-once": "Kuyruktaki tek seferlik işleri çalıştır",
+    "edge:verify": "Uç nokta doğrulama taraması",
+    "audit:retention-prune": "Denetim günlüğü temizliği",
+    "retention-prune-daily": "Eski yedekleri temizle",
+    "backups:stale-run-sweep": "Takılan yedekleri uzlaştır",
+    "domains:check-https": "Bulut HTTPS durumu",
+    "analytics:scrape": "Trafik analizlerini topla",
+    "resources:sample": "Kaynak kullanımı örnekleme",
+    "analytics:retention-prune": "Trafik analizi temizliği",
+    "resources:retention-prune": "Kaynak kullanımı temizliği",
+    "migrations:recover": "Taşıma kurtarma",
+    "deployments:cloud-build-queue": "Bulut derleme kuyruğu",
+    "deployments:cloud-build-recovery": "Bulut derleme kurtarma",
+    "deployments:reconcile": "Dağıtım uzlaştırma",
+    "permissions:pending-grant-prune": "Bekleyen davetleri temizle",
+    "github:webhook-event-prune": "GitHub webhook temizliği",
+    "edge:target-verify": "Ücretsiz alan adı hedef doğrulaması",
+    "modules:scan": "Sunucu modülü taraması",
+    "infra:scan": "Yönetilen konteyner taraması",
+    "mail:inbound-watch": "Gelen e-posta kuralları",
+    "mail:inbound-reconcile": "Gelen e-posta kuralları uzlaştırma",
+    "services:health-watch": "Konteyner sağlık izleme",
+    "incidents:prune": "Olay geçmişini temizle",
+    "jobs:oneshot": "Tek seferlik görev dağıtıcı",
+    "Audit log prune": "Denetim günlüğü temizliği",
+    "Backup in-flight stale reconciliation": "Takılan yedekleri uzlaştır",
+    "Backup retention prune": "Eski yedekleri temizle",
+    "Cloud HTTPS health": "Bulut HTTPS durumu",
+    "Cloud workspace operations": "Bulut çalışma alanı işlemleri",
+    "Container health watch": "Konteyner sağlık izleme",
+    "Deployment artifact cleanup": "Dağıtım yapıtı temizliği",
+    "Deployment reconcile": "Dağıtım uzlaştırma",
+    "GitHub deployment Checks": "GitHub dağıtım kontrolleri",
+    "GitHub webhook event prune": "GitHub webhook temizliği",
+    "Incident history prune": "Olay geçmişini temizle",
+    "Managed-container update scan": "Yönetilen konteyner taraması",
+    "Migration recovery": "Taşıma kurtarma",
+    "Native-module update scan": "Sunucu modülü taraması",
+    "Notification rule capture drift": "Gelen e-posta kuralları uzlaştırma",
+    "Notification rules": "Gelen e-posta kuralları",
+    "One-time job dispatcher": "Tek seferlik görev dağıtıcı",
+    "Orphaned resource cleanup": "Sahipsiz kaynak temizliği",
+    "Pending grant prune": "Bekleyen davetleri temizle",
+    "Resource usage prune": "Kaynak kullanımı temizliği",
+    "Resource usage sampling": "Kaynak kullanımı örnekleme",
+    "SSL certificate renewal": "SSL sertifikası yenileme",
+    "Traffic analytics collection": "Trafik analizlerini topla",
+    "Traffic analytics prune": "Trafik analizi temizliği",
+    "Update scan": "Güncelleme taraması",
+    "Free-domain target verification": "Ücretsiz alan adı hedef doğrulaması",
+    "Domain DNS verification": "Alan adı DNS doğrulaması"
+  },
+  "eventTriggers": {
+    "deployment.succeeded": {
+      "label": "Dağıtım başarılı",
+      "description": "Canlı ortam dağıtımı başarıyla tamamlandı."
+    },
+    "deployment.failed": {
+      "label": "Dağıtım başarısız",
+      "description": "Derleme veya dağıtım hata verdi."
+    },
+    "backup_run.succeeded": {
+      "label": "Yedekleme başarılı",
+      "description": "Zamanlanmış veya manuel yedekleme tamamlandı."
+    },
+    "backup_run.failed": {
+      "label": "Yedekleme başarısız",
+      "description": "Yedekleme çalıştırması hata verdi."
+    },
+    "backup_restore.completed": {
+      "label": "Geri yükleme tamamlandı",
+      "description": "Geri yükleme tamamlandı."
+    },
+    "ssl.renewal_failed": {
+      "label": "SSL yenileme başarısız",
+      "description": "Sertifika yenilenemedi."
+    },
+    "domain.verification_failed": {
+      "label": "Alan adı doğrulaması başarısız",
+      "description": "Alan adının DNS kontrolü başarısız oldu."
+    }
+  }
+}

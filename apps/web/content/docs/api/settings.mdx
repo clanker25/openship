@@ -1,0 +1,215 @@
+---
+title: User settings
+description: Read and update your build, deploy, routing, and Git preferences.
+---
+
+User settings apply to the authenticated user. There is no settings ID to select. References to servers
+are checked against the current organization and access grants; an inaccessible default server is hidden.
+Use [installation settings](/docs/api/system) for instance-wide configuration.
+
+## Personal appearance
+
+`GET /api/settings/appearance` returns `{ "appearance": null }` for an unset preference, or an appearance library. `PUT /api/settings/appearance` accepts the same wrapper. Pass `null` to clear the saved appearance. Both endpoints operate exclusively on the authenticated user and retain the existing settings permissions; there is no user ID selector. Other settings and credentials are preserved.
+
+```ts
+const { appearance } = await ship.settings.getAppearance();
+await ship.settings.setAppearance({ appearance });
+// Clear the saved personal appearance.
+await ship.settings.setAppearance({ appearance: null });
+```
+
+A library has `version: 1`, an `active` preset (`light`, `dim`, `dark`, `system`) or custom theme ID, and `themes`. Each theme contains `version: 1`, `id`, `name`, `base`, `tokens`, `typography` and optional embedded `fonts`. Missing token overrides inherit the base theme. Token references may use registered variables of the same type and must not form cycles. Unknown tokens, executable CSS, remote font references, unsupported versions and excessive payloads are rejected.
+
+```json
+{
+  "version": 1,
+  "active": "ocean",
+  "themes": [{
+    "version": 1,
+    "id": "ocean",
+    "name": "Ocean",
+    "base": "dim",
+    "tokens": { "--th-bg-page": "#142333", "--radius": "12px" },
+    "typography": {
+      "sans": "system", "mono": "systemMono",
+      "size": 16, "monoSize": 13, "lineHeight": 1.5, "weight": 400
+    },
+    "fonts": []
+  }]
+}
+```
+
+The same library JSON can be exported, imported and reset from the CLI. `set` also accepts a single theme exported by the dashboard and merges it by ID into the current library.
+
+```bash
+openship --json settings appearance get > appearance.json
+openship settings appearance set appearance.json
+openship settings appearance reset
+```
+
+Font choices are `gellix`, `system`, `serif` or `custom` for the interface and `mono`, `systemMono` or `custom` for monospace. A custom choice requires a matching font asset with `role`, `name` and base64 WOFF2 `data`. Each font is limited to 256 KiB; the full library is limited to 1 MiB and 32 themes. All clients validate the same schema. Existing instances receive a nullable column through an additive migration; older users retain their default appearance.
+
+## Read preferences
+
+<Tabs items={['SDK', 'REST API']} groupId="api-transport" persist>
+<Tab value="SDK">
+
+```ts
+const settings = await ship.settings.get();
+console.log(settings.buildMode, settings.defaultDeployTarget);
+```
+
+</Tab>
+<Tab value="REST API">
+
+```bash
+curl "$OPENSHIP_URL/api/settings" \
+  -H "Authorization: Bearer $OPENSHIP_TOKEN"
+```
+
+</Tab>
+</Tabs>
+
+The result includes build and route strategy, deploy defaults, transfer preferences, and Git options.
+`cloneToken` reports `hasToken`, `setAt`, and `asDefault`; it never contains the token value.
+
+## Set build and routing defaults
+
+<Tabs items={['SDK', 'REST API']} groupId="api-transport" persist>
+<Tab value="SDK">
+
+```ts
+await ship.settings.setBuildMode({ buildMode: "server" });
+```
+
+</Tab>
+<Tab value="REST API">
+
+```bash
+curl -X PATCH "$OPENSHIP_URL/api/settings/build-mode" \
+  -H "Authorization: Bearer $OPENSHIP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"buildMode":"server"}'
+```
+
+</Tab>
+</Tabs>
+
+| Method | Input | Values |
+| --- | --- | --- |
+| `setBuildMode` | `buildMode` | `auto`, `server`, or `local`. |
+| `setRouteStrategy` | `routeStrategy` | `auto`, `loopback-port`, or `container-ip`. |
+
+`update({ buildMode })` also creates or updates the settings row; it maps to `PUT /api/settings`.
+Route strategy controls how the edge reaches an application. Provider constraints still apply; for
+example, container-IP routing is unsupported on Docker Desktop.
+
+## Set a deployment destination
+
+<Tabs items={['SDK', 'REST API']} groupId="api-transport" persist>
+<Tab value="SDK">
+
+```ts
+await ship.settings.setDeployDefaults({
+  defaultDeployTarget: "server",
+  defaultServerId: "srv_123",
+});
+```
+
+</Tab>
+<Tab value="REST API">
+
+```bash
+curl -X PATCH "$OPENSHIP_URL/api/settings/deploy-defaults" \
+  -H "Authorization: Bearer $OPENSHIP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"defaultDeployTarget":"server","defaultServerId":"srv_123"}'
+```
+
+</Tab>
+</Tabs>
+
+`defaultDeployTarget` is `server`, `cloud`, or `null`. A server target requires an accessible
+`defaultServerId`. Other targets clear that server reference. Pass `null` to clear a default; omit a
+field to retain its value. `local` is derived from the project at deployment time and is not a selectable
+default destination.
+
+## Manage clone credentials
+
+<Tabs items={['SDK', 'REST API']} groupId="api-transport" persist>
+<Tab value="SDK">
+
+```ts
+await ship.settings.setCloneCredentials({ token: "ghp_example", asDefault: true });
+```
+
+</Tab>
+<Tab value="REST API">
+
+```bash
+curl -X PATCH "$OPENSHIP_URL/api/settings/clone-credentials" \
+  -H "Authorization: Bearer $OPENSHIP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"token":"ghp_example","asDefault":true}'
+```
+
+</Tab>
+</Tabs>
+
+Use a real Git token from your secret store. The token is encrypted and never returned. Omit `token` to
+leave it unchanged; send `null` or an empty string to clear it. `asDefault` controls whether it is used
+automatically for clones.
+
+`setCloneStrategy({ preference })` accepts `prompt`, `local`, or `remote-with-token`.
+`setGitForwarding({ enabled })` controls forwarding the local Git identity to an authorized build server
+for the clone. See [Git authentication](/docs/guides/git-authentication).
+
+## Set transfer preferences
+
+<Tabs items={['SDK', 'REST API']} groupId="api-transport" persist>
+<Tab value="SDK">
+
+```ts
+await ship.settings.setTransferPreferences({
+  transferMode: "auto",
+  transferCompression: "zstd",
+});
+```
+
+</Tab>
+<Tab value="REST API">
+
+```bash
+curl -X PATCH "$OPENSHIP_URL/api/settings/transfer" \
+  -H "Authorization: Bearer $OPENSHIP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"transferMode":"auto","transferCompression":"zstd"}'
+```
+
+</Tab>
+</Tabs>
+
+Both fields are optional. `transferMode` accepts `auto`, `stream`, `direct`, or `rsync`;
+`transferCompression` accepts `auto`, `zstd`, `gzip`, or `none`. These are defaults for migration volume
+transfers; target capabilities determine the effective transport.
+
+## Operations
+
+{/* api-operations:start */}
+
+| Operation | SDK | REST API |
+| --- | --- | --- |
+| Read the current user’s preferences and defaults. | `settings.get()` | `GET /api/settings`<br />`settings:read` |
+| Update user settings. | `settings.update(input)` | `PUT /api/settings`<br />`settings:write` |
+| Choose where builds run by default. | `settings.setBuildMode(input)` | `PATCH /api/settings/build-mode`<br />`settings:write` |
+| Choose the default routing strategy. | `settings.setRouteStrategy(input)` | `PATCH /api/settings/route-strategy`<br />`settings:write` |
+| Set the default deployment target and resources. | `settings.setDeployDefaults(input)` | `PATCH /api/settings/deploy-defaults`<br />`settings:write` |
+| Configure credentials for source cloning. | `settings.setCloneCredentials(input)` | `PATCH /api/settings/clone-credentials`<br />`settings:write` |
+| Choose how source is transferred to build servers. | `settings.setCloneStrategy(input)` | `PATCH /api/settings/clone-strategy-preference`<br />`settings:write` |
+| Set source transfer preferences. | `settings.setTransferPreferences(input)` | `PATCH /api/settings/transfer`<br />`settings:write` |
+| Configure forwarding of Git identity to build servers. | `settings.setGitForwarding(input)` | `PATCH /api/settings/forward-git`<br />`settings:write` |
+| Read the authenticated user’s saved appearance and portable theme library. | `settings.getAppearance()` | `GET /api/settings/appearance`<br />`settings:read` |
+| Save or reset personal appearance, validated tokens and embedded WOFF2 fonts. | `settings.setAppearance(input)` | `PUT /api/settings/appearance`<br />`settings:write` |
+| Save the authenticated user’s dashboard language for chat replies and assistant turns without changing other preferences. | `settings.setLocale(input)` | `PATCH /api/settings/locale`<br />`settings:write` |
+
+{/* api-operations:end */}

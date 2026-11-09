@@ -1,0 +1,270 @@
+{
+  "home": {
+    "goodMorning": "Buenos días",
+    "goodAfternoon": "Buenas tardes",
+    "goodEvening": "Buenas noches",
+    "subtitle": "Esto es lo que está pasando en tus proyectos",
+    "statsProjects": "Proyectos",
+    "statsDeployments": "Despliegues",
+    "statsSuccessful": "Exitosos",
+    "statsFailed": "Fallidos",
+    "recentProjects": "Proyectos recientes",
+    "yourLatestActivity": "Tu actividad más reciente",
+    "viewAll": "Ver todo",
+    "noProjectsYet": "Aún no hay proyectos",
+    "createFirstProject": "Crea tu primer proyecto",
+    "justNow": "ahora mismo",
+    "minutesAgo": "hace {n} min",
+    "hoursAgo": "hace {n} h",
+    "daysAgo": "hace {n} d",
+    "monthsAgo": "hace {n} meses",
+    "statusLive": "En vivo",
+    "statusPaused": "En pausa",
+    "yourProjects": "Tus proyectos",
+    "loading": "Cargando...",
+    "projectCountOne": "{count} proyecto",
+    "projectCountOther": "{count} proyectos",
+    "viewAllProjects": "Ver los {count} proyectos →",
+    "viewAllApps": "Ver las {count} aplicaciones →",
+    "greetingName": "{greeting}, {name}",
+    "importGit": "Importar Git",
+    "importGitDesc": "Desde repositorio",
+    "mcpDeploy": "Desplegar con MCP",
+    "mcpDeployDesc": "Conecta un agente de IA",
+    "settingsCard": "Configuración",
+    "settingsCardDesc": "Cuenta y equipo",
+    "docs": "Documentación",
+    "docsDesc": "Más información",
+    "activityTitle": "Actividad",
+    "systemStatus": "Estado del sistema",
+    "operational": "Operativo",
+    "oneIssue": "1 problema",
+    "manyIssues": "{n} problemas",
+    "recentTitle": "Reciente",
+    "activityEmpty": "Tu actividad aparecerá aquí",
+    "allSystemsOperational": "Todos los sistemas operativos",
+    "runningSmoothly": "Tus proyectos funcionan sin problemas",
+    "time": {
+      "justNow": "ahora mismo",
+      "minutes": "hace {n} min",
+      "hours": "hace {n} h",
+      "days": "hace {n} d",
+      "months": "hace {n} meses"
+    },
+    "appsEmptyTitle": "Aún no hay apps",
+    "appsEmptyDesc": "Un clic, totalmente autoalojado: bases de datos, automatización, analítica, gestores de contraseñas y más, en tus propios servidores."
+  },
+  "nav": {
+    "referrals": "Referidos",
+    "resources": "Espacios Cloud",
+    "support": "Soporte",
+    "scale": "Escalado",
+    "home": "Inicio",
+    "new-project": "Nuevo proyecto",
+    "projects": "Proyectos",
+    "deployments": "Despliegues",
+    "issues": "Monitoreo",
+    "backups": "Copias de seguridad",
+    "domains": "Dominios",
+    "monitoring": "Monitoreo",
+    "servers": "Servidores",
+    "emails": "Correos",
+    "settings": "Configuración",
+    "billing": "Planes y facturación",
+    "audit": "Registro de auditoría",
+    "mailSetup": "Configurar el correo",
+    "mailSetupProgress": "Progreso de la configuración",
+    "addMailbox": "Añadir buzón",
+    "webmail": "Webmail",
+    "sections": {
+      "help": "Ayuda",
+      "main": "Principal",
+      "settings": "Configuración",
+      "infrastructure": "Infraestructura",
+      "mail": "Correo",
+      "delivery": "Entrega",
+      "system": "Sistema",
+      "account": "Cuenta"
+    },
+    "apps": "Apps",
+    "jobs": "Trabajos",
+    "workspaces": "Espacios de trabajo",
+    "actions": "Acciones",
+    "assistant": "Agentes de IA"
+  },
+  "sidebar": {
+    "expand": "Expandir barra lateral",
+    "collapse": "Contraer barra lateral"
+  },
+  "user": {
+    "logout": "Cerrar sesión",
+    "loggingOut": "Cerrando sesión…",
+    "profile": "Perfil",
+    "preferences": "Preferencias"
+  },
+  "pages": {
+    "apps": {
+      "moreApps": "+{count} más",
+      "title": "Apps",
+      "description": "Servicios gestionados con un clic: instala y ejecuta Convex, WordPress, correo y más.",
+      "createButton": "Instalar app",
+      "loading": "Cargando apps…",
+      "countOne": "{count} app instalada",
+      "countOther": "{count} apps instaladas",
+      "emptyTitle": "Instala tu primera app",
+      "emptyDescription": "Levanta Convex, n8n, Ghost y más: un clic, totalmente autoalojado. Elige uno para empezar.",
+      "popular": "Apps populares",
+      "alsoDeploy": "También puedes desplegar",
+      "browseAll": "Ver todas las apps",
+      "catalogTitle": "Instalar una app",
+      "catalogDescription": "Servicios gestionados con un clic. Elige uno para instalarlo como app.",
+      "catalogSearchPlaceholder": "Buscar apps…",
+      "catalogNoResults": "Ninguna app coincide con tu búsqueda.",
+      "cancel": "Cancelar",
+      "install": "Instalar",
+      "installing": "Instalando…",
+      "comingSoon": "Próximamente",
+      "configTitle": "Configurar {app}",
+      "nameLabel": "Nombre",
+      "categories": {
+        "all": "Todas",
+        "backend": "Backend",
+        "database": "Base de datos",
+        "cms": "CMS",
+        "analytics": "Analítica",
+        "automation": "Automatización",
+        "mail": "Correo",
+        "other": "Herramientas",
+        "ai": "IA y modelos"
+      },
+      "addCustom": "Añadir personalizada",
+      "howToAddApp": "Cómo añadir una aplicación",
+      "removeCustomApp": "Eliminar aplicación personalizada",
+      "needsUpdateDesc": "Actualiza tu instancia de Openship para instalar esta aplicación.",
+      "needsUpdateBadge": "Requiere actualización",
+      "needsVersionBadge": "Requiere v{version}",
+      "removedToast": "Se eliminó \"{name}\".",
+      "removeFailedToast": "No se pudo eliminar la aplicación.",
+      "gpu": {
+        "recommended": "GPU recomendada",
+        "required": "Requiere GPU NVIDIA",
+        "mode": "Procesamiento",
+        "cpu": "Solo CPU",
+        "nvidia": "GPU NVIDIA",
+        "hint": "El modo NVIDIA necesita un controlador compatible y NVIDIA Container Toolkit en tu servidor.",
+        "cloudUnsupported": "Esta app solo admite alojamiento propio. Elige un servidor propio conectado.",
+        "selfHostedOnly": "Solo alojamiento propio",
+        "noGpu": "No se detectó una GPU. Revisa el controlador NVIDIA y Container Toolkit o elige CPU."
+      }
+    },
+    "projects": {
+      "title": "Proyectos",
+      "description": "Despliega y gestiona tus aplicaciones con facilidad",
+      "createButton": "Crear proyecto",
+      "stats": {
+        "totalProjects": "Total de proyectos",
+        "liveNow": "En vivo ahora",
+        "avgPerDay": "Promedio por día",
+        "successRate": "Tasa de éxito"
+      },
+      "searchPlaceholder": "Buscar proyectos...",
+      "pinnedProjects": "Proyectos fijados",
+      "otherProjects": "Otros proyectos",
+      "noResultsFound": "No se encontraron proyectos que coincidan con \"{query}\"",
+      "emptyState": {
+        "title": "Comienza tu primer proyecto",
+        "description": "Importa un repositorio de Git, usa una plantilla o despliega desde la CLI. Tus proyectos aparecerán aquí.",
+        "createProject": "Crear proyecto",
+        "browseTemplates": "Explorar plantillas",
+        "zeroConfig": "Despliegue sin configuración",
+        "instant": "Instantáneo",
+        "instantDesc": "Despliega en segundos",
+        "global": "Global",
+        "globalDesc": "Más de 100 regiones edge",
+        "previews": "Vistas previas",
+        "previewsDesc": "URL por rama",
+        "rollbacks": "Reversiones",
+        "rollbacksDesc": "Revierte con un clic",
+        "commandPalette": "O pulsa {key} para abrir la paleta de comandos"
+      },
+      "view": {
+        "label": "Vista",
+        "list": "Lista",
+        "grid": "Cuadrícula"
+      }
+    },
+    "deployments": {
+      "title": "Despliegues",
+      "description": "Consulta y gestiona tu historial de despliegues."
+    },
+    "domains": {
+      "title": "Dominios",
+      "description": "Gestiona dominios personalizados y registros DNS."
+    },
+    "monitoring": {
+      "title": "Monitoreo",
+      "description": "Registros, métricas y comprobaciones de estado de tus servicios."
+    },
+    "servers": {
+      "title": "Servidores",
+      "description": "Gestiona tus servidores de despliegue e infraestructura."
+    },
+    "settings": {
+      "title": "Configuración",
+      "description": "Configuración de cuenta, equipo y plataforma."
+    },
+    "billing": {
+      "title": "Facturación y uso",
+      "description": "Gestiona tu suscripción, uso y métodos de pago."
+    }
+  },
+  "quickLinks": {
+    "title": "Acciones rápidas",
+    "subtitle": "Accede a las tareas comunes",
+    "deployProject": {
+      "title": "Desplegar proyecto",
+      "description": "Importar desde Git"
+    },
+    "projects": {
+      "title": "Proyectos",
+      "description": "Todos los proyectos"
+    },
+    "deployments": {
+      "title": "Despliegues",
+      "description": "Historial de compilaciones"
+    },
+    "settings": {
+      "title": "Configuración",
+      "description": "Gestionar acceso"
+    },
+    "domains": {
+      "title": "Dominios",
+      "description": "Dominios personalizados"
+    },
+    "billing": {
+      "title": "Facturación y uso",
+      "description": "Uso y planes"
+    }
+  },
+  "investigation": {
+    "action": "Investigar con IA",
+    "deploymentTitle": "Investigar este despliegue",
+    "issueTitle": "Investigar este problema",
+    "description": "Revisa la solicitud, añade detalles útiles y envíala a tu asistente.",
+    "setup": "La investigación está preparada. Activa el asistente y conecta un agente para continuar.",
+    "invalid": "Este enlace no es válido o pertenece a otro espacio de trabajo o cuenta. Abre el problema original en su espacio e inténtalo de nuevo.",
+    "back": "Abrir asistente",
+    "deploymentPrompt": "Investiga el despliegue fallido {deploymentId}.",
+    "issuePrompt": "Investiga el problema de la aplicación {issueId}.",
+    "appContext": "ID de la aplicación: {projectId}.",
+    "instructions": "Usa las herramientas de OpenShip para revisar el estado actual y los registros relevantes. Explica la causa probable con pruebas y sugiere el siguiente paso. Investiga primero, sin hacer cambios. Si falta acceso, solicita los permisos específicos necesarios.",
+    "fixAction": "Corregir con IA",
+    "fixTitle": "Corregir este problema",
+    "securityPrompt": "Investiga y resuelve el aviso de seguridad {advisoryId} para esta app. Lee los hallazgos actuales de OpenShip y las recomendaciones oficiales, inspecciona los servicios afectados y su configuración efectiva y aplica una solución persistente con los permisos aprobados. Vuelve a desplegar los procesos afectados cuando sea necesario y verifica el resultado. Una versión coincidente por sí sola no demuestra que la aplicación sea explotable. No ocultes la advertencia ni afirmes una solución sin pruebas. Primero determina si el aviso aplica. Si no aplica, presenta las pruebas y no cambies los servicios.",
+    "fixPrompt": "Investiga y corrige el problema de la aplicación {issueId}.",
+    "fixInstructions": "Usa las herramientas de OpenShip para revisar el problema actual, el estado y los registros relevantes. Encuentra la causa, aplica una solución adecuada dentro de tus permisos aprobados y verifica el resultado. Si faltan permisos o una decisión necesaria, ofrece la revisión correspondiente en el chat. Informa de los cambios y los problemas pendientes; confirma la recuperación solo con pruebas observadas.",
+    "reportAction": "Informe de estado con IA",
+    "reportTitle": "Informe de estado del espacio de trabajo",
+    "reportPrompt": "Revisa el estado actual de las aplicaciones, despliegues, servicios y servidores accesibles de este espacio de trabajo con las herramientas de supervisión y estado de OpenShip. Resume qué funciona bien, qué necesita atención, las pruebas y los próximos pasos más útiles. Indica los datos de supervisión obsoletos o no disponibles y las limitaciones de acceso. Una lista vacía de problemas no demuestra un estado correcto. Este informe es de solo lectura: no cambies recursos ni solicites diagnósticos de administrador para toda la instancia."
+  }
+}

@@ -1,0 +1,303 @@
+// ─── Database client ─────────────────────────────────────────────────────────
+export {
+  db,
+  getDriver,
+  getPgPool,
+  closeDb,
+  type Database,
+  type DatabaseTransaction,
+  type Driver,
+} from "./client";
+// The dev hot-reload contract: shutdown must free the PGlite lock inside the
+// successor's takeover grace, or every reload hard-kills the DB mid-close.
+export { DEV_LOCK_TAKEOVER_GRACE_MS, isDevWatchReload } from "./pglite-lock";
+
+// ─── Advisory locking (cross-process serialization) ──────────────────────────
+export {
+  withAdvisoryLock,
+  tryAcquireAdvisoryLock,
+  runOutsideAdvisoryLock,
+  hashStringToInt,
+  type AdvisoryLockHandle,
+} from "./advisory-lock";
+
+// ─── Schema (table definitions) ──────────────────────────────────────────────
+export * as schema from "./schema";
+export type { ActionRunConfiguration } from "./schema/actions";
+export {
+  githubActionRunId,
+  githubActionJobId,
+  type ActionRunnerSession,
+} from "./repos/action-github.repo";
+export {
+  createActionsRepo,
+  type ActionRunner,
+  type ActionWorkflow,
+  type ActionRun,
+  type ActionJob,
+  type ActionDelivery,
+} from "./repos/actions.repo";
+export type { ActionDeploymentRequest } from "./repos/action-project.repo";
+export {
+  createActionStorageRepo,
+  type ActionStorageObject,
+  type ActionStorageChunk,
+} from "./repos/action-storage.repo";
+export type { ComposeServiceSpec, ServicePublicEndpoint } from "./schema/service";
+export type {
+  CloudWorkspaceOperation,
+  CloudWorkspaceActivity,
+  LinkedCloudServer,
+  CloudSubscriptionChangeIntent,
+} from "./schema/cloud-workspace";
+export type { ServerContainerDetail } from "./schema/server-container-status";
+export type {
+  IncomingWebhookActionType,
+  IncomingWebhookActionConfig,
+  IncomingWebhookAuthMode,
+} from "./schema/incoming-webhook";
+export { INCIDENT_KINDS, type IncidentKind } from "./schema/service-incident";
+export { RESOURCE_BUCKET_MINUTES, SINGLE_APP_SERVICE_KEY } from "./schema/resource-usage";
+
+// ─── Dump / restore (team-mode migration + project transfer) ─────────────────
+export {
+  dumpSubgraph,
+  countInstanceSubgraphTables,
+  restoreSubgraph,
+  restoreSubgraphInTransaction,
+  assertActiveDeploymentOwnership,
+  assertDumpSchemaCompatible,
+  deleteProjectSubgraph,
+  dumpDatabase,
+  restoreDatabase,
+  DUMP_FORMAT_VERSION,
+  PkCollisionError,
+  ENCRYPTED_COLUMNS,
+  EXCLUDED_TABLES,
+  topoOrderedTables,
+  stripEncryptedInPlace,
+  stripInstanceRefsInPlace,
+  type DatabaseDump,
+  type DumpOptions,
+  type RestoreOptions,
+  type SubgraphScope,
+  type TableSpec,
+} from "./dump";
+
+// ─── Repositories (all DB access goes through here) ──────────────────────────
+export {
+  repos,
+  createUserRepo,
+  createSessionRepo,
+  createAccountRepo,
+  createGitInstallationRepo,
+  createGitSourceRepo,
+  createProjectGroupRepo,
+  createProjectRepo,
+  createCloudDockerWorkspaceRepo,
+  type CloudDockerWorkspace,
+  createCloudWorkspaceRepo,
+  type CloudWorkspace,
+  createDeploymentRepo,
+  createDomainRepo,
+  createDomainDnsChallengeRepo,
+  type DomainDnsChallenge,
+  createServiceRepo,
+  createServiceDeploymentRepo,
+  createPersonalAccessTokenRepo,
+  normalizeRoutingFields,
+  normalizeComposeRoutingFields,
+  toComposeSpec,
+  composeSpecsEqual,
+  composeValuesEqual,
+  reconcileComposeSpec,
+  unresolvedComposeEnvironmentKeys,
+  composeSpecDiff,
+  createSettingsRepo,
+  createServerRepo,
+  createServerClusterRepo,
+  type ServerClusterRecord,
+  type ClusterVerificationRecord,
+  type ManagedNetworkOperationRecord,
+  createNetworkPreparationRepo,
+  type NetworkPreparationRecord,
+  createServerGithubAuthRepo,
+  createGithubDeployKeyRepo,
+  createServerTunnelRepo,
+  createAnalyticsRepo,
+  createTerminalSessionRepo,
+  createServiceTerminalSessionRepo,
+  type User,
+  type NewUser,
+  type Session,
+  type Account,
+  type GitInstallation,
+  type NewGitInstallation,
+  type GitSource,
+  type NewGitSource,
+  type ProjectGroup,
+  type NewProjectGroup,
+  type Project,
+  type NewProject,
+  type EnvVar,
+  type NewEnvVar,
+  type Deployment,
+  type NewDeployment,
+  type BuildSession,
+  type NewBuildSession,
+  type DeploymentResourceChanges, type DeploymentRoleChanges,
+  type Domain,
+  type NewDomain,
+  type DnsCredential,
+  type NewDnsCredential,
+  type Credential,
+  type NewCredential,
+  type MailInboundRule,
+  type NewMailInboundRule,
+  type MailInboundScope,
+  type Service,
+  type NewService,
+  type ServiceDeployment,
+  type NewServiceDeployment,
+  type ServiceDeploymentStatus,
+  type PersonalAccessToken,
+  type PublicPersonalAccessToken,
+  type NewPersonalAccessToken,
+  type CreatePatInput,
+  type UserSettings,
+  type NewUserSettings,
+  type Server,
+  type ConnectedServer,
+  type NewServer,
+  type ServerGithubAuth,
+  type NewServerGithubAuth,
+  type GithubDeployKey,
+  type NewGithubDeployKey,
+  type ServerTunnel,
+  type NewServerTunnel,
+  type ServerAnalyticsRow,
+  type NewServerAnalytics,
+  type ServerAnalyticsGeoRow,
+  type NewServerAnalyticsGeo,
+  type TerminalSession,
+  type NewTerminalSession,
+  type TerminalExitReason,
+  type ServiceTerminalSession,
+  type NewServiceTerminalSession,
+  type BackupDestination,
+  type NewBackupDestination,
+  type BackupPolicy,
+  type NewBackupPolicy,
+  type BackupRun,
+  type NewBackupRun,
+  type BackupRestore,
+  type NewBackupRestore,
+  type BackupRunStatus,
+  type BackupRestoreStatus,
+  type PolicyLastRunSummary,
+  type DockerMigrationRun,
+  type NewDockerMigrationRun,
+  type DockerMigrationStatus,
+  type Member,
+  type MemberRole,
+  type Invitation,
+  type AuditEvent,
+  type NewAuditEvent,
+  createJobRunRepo,
+  type JobRun,
+  type NewJobRun,
+  createJobRepo,
+  type Job,
+  type NewJob,
+  type OrphanedResource,
+  type NewOrphanedResource,
+  createHostPortClaimRepo,
+  HostPortClaimConflictError,
+  HOST_PORT_QUARANTINE_OWNER,
+  type HostPortClaim,
+  type NewHostPortClaim,
+  type HostPortTargetKey,
+  type HostPortClaimIdentity,
+  type HostPortClaimOwner,
+  type PruneHostPortClaimsInput,
+  type ResourceGrant,
+  type Permission,
+  type ResourceType,
+  createNotificationChannelRepo,
+  createNotificationSubscriptionRepo,
+  createNotificationDefaultRepo,
+  createNotificationDeliveryRepo,
+  type NotificationChannel,
+  type NotificationSubscription,
+  type NotificationDefault,
+  type NotificationDelivery,
+  type ChannelKind,
+  type DeliveryStatus,
+  createUpdateStatusRepo,
+  type UpdateStatus,
+  type NewUpdateStatus,
+  createServerContainerStatusRepo,
+  type ServerContainerStatus,
+  type NewServerContainerStatus,
+  type ServerContainerComponent,
+  type IncomingWebhook,
+  type NewIncomingWebhook,
+  type WebhookDelivery,
+  type EdgeTargetVerification,
+  createServiceIncidentRepo,
+  incidentSeverity,
+  type ServiceIncident,
+  type NewServiceIncident,
+  type ResourceUsageRow,
+  type NewResourceUsage,
+} from "./repos";
+
+// ─── Drizzle operators (re-exported for convenience) ─────────────────────────
+export {
+  eq,
+  ne,
+  and,
+  or,
+  not,
+  gt,
+  gte,
+  lt,
+  lte,
+  like,
+  ilike,
+  inArray,
+  notInArray,
+  isNull,
+  isNotNull,
+  between,
+  desc,
+  asc,
+  sql,
+  count,
+} from "drizzle-orm";
+export * from "./project-transfer";
+
+export { createComputeClusterRepo, type ComputeClusterRecord } from "./repos/compute-cluster.repo";
+export { createClusterRuntimeRepo, type ClusterRuntimeRecord } from "./repos/cluster-runtime.repo";
+export { createClusterStorageRepo, type ClusterStorageRecord } from "./repos/cluster-storage.repo";
+export {
+  createClusterDatabaseRepo,
+  type ClusterDatabaseRecord,
+} from "./repos/cluster-database.repo";
+
+export type { CloudBuildActivity } from "./schema/cloud-build-activity";
+export { createCloudBuildActivityRepo, reserveCloudBuildActivity, type CloudBuildActivityIdentity, type CloudBuildResources } from "./repos/cloud-build-activity.repo";
+export { createDeploymentCheckRepo, type DeploymentCheck } from "./repos/deployment-check.repo";
+
+export type { IngressConnection, IngressHostname } from "./repos/ingress.repo";
+
+export { createPullRequestPreviewRepo, type PullRequestPreview } from "./repos/pull-request-preview.repo";
+
+export type { AutomaticBuildCancellation } from "./repos/deployment.repo";
+
+export type { AssistantRow, AssistantOwner, AssistantConnectionRow } from "./repos/assistant.repo";
+export type { AssistantAutomationRow, AssistantAutomationRunRow } from "./repos/assistant-automations.repo";
+
+export type { ChatAppConnection, ChatAppIdentity, ChatAppThread, ChatAppReceipt } from "./repos/chat-apps.repo";
+
+export type { AssistantAgentRow } from "./repos/assistant-agents.repo";

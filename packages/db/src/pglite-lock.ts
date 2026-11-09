@@ -1,0 +1,556 @@
+import { reportCaughtError as observeCaughtError, diagnostics as errorDiagnostics } from "@repo/core/diagnostics";
+import { openSync, writeSync, closeSync, readFileSync, readlinkSync, unlinkSync, statSync } from "fs";
+import { dirname, basename, join } from "path";
+import { hostname } from "os";
+import { spawnSync } from "child_process";
+import { randomUUID } from "node:crypto";
+
+/**
+ * Single-instance lock for a PGlite data directory.
+ *
+ * PGlite is single-process embedded Postgres with NO real cross-process lock —
+ * it writes a `-42` sentinel into `postmaster.pid` that identifies no process.
+ * Two processes opening the same data dir corrupt the WASM cluster
+ * (`RuntimeError: Aborted()`), which is unrecoverable. This lock provides the
+ * exclusion PGlite lacks:
+ *
+ *   - acquisition is atomic (`open(..., "wx")` / O_EXCL) so exactly one process
+ *     can ever hold the dir — no concurrent-open corruption is possible;
+ *   - on Linux a kernel file lock preserves exclusion across PID namespaces
+ *     and releases automatically after a crash;
+ *   - lock files are siblings of the data dir; acquisition never modifies
+ *     cluster data.
+ */
+
+/**
+ * Lock file path — a SIBLING of the data dir, never inside it. PGlite's initdb
+ * refuses a non-empty directory when bootstrapping a fresh cluster, so a lock
+ * file placed inside the data dir would break every first-time install. Keeping
+ * it beside the dir (`<dir>.lock`) leaves the cluster directory pristine.
+ */
+function lockPathFor(dataDir: string): string {
+  return join(dirname(dataDir), `${basename(dataDir)}.lock`);
+}
+
+/**
+ * Stable per-machine identifier. `os.hostname()` is NOT stable — on macOS it
+ * tracks the current network's mDNS/DHCP name and changes when you switch
+ * networks (e.g. "bluemac.local" → "bluemac"), so comparing hostnames wrongly
+ * flagged a same-machine live lock as a "different host" and told the user to
+ * delete a lock a running process legitimately held. We compare the OS machine
+ * UUID instead: local to the box, independent of the (possibly shared) data
+ * filesystem, so it still distinguishes two real machines mounting one data dir.
+ * Falls back to hostname() only if the platform lookup fails.
+ */
+let cachedMachineId: { id: string; stable: boolean } | null = null;
+function machineId(): { id: string; stable: boolean } {
+  if (cachedMachineId) return cachedMachineId;
+  let id = "";
+  try {
+    if (process.platform === "darwin") {
+      const out =
+        spawnSync("ioreg", ["-rd1", "-c", "IOPlatformExpertDevice"], {
+          encoding: "utf8",
+          timeout: 2000,
+        }).stdout ?? "";
+      id = out.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/)?.[1] ?? "";
+    } else if (process.platform === "win32") {
+      const out =
+        spawnSync("reg", ["query", "HKLM\\SOFTWARE\\Microsoft\\Cryptography", "/v", "MachineGuid"], {
+          encoding: "utf8",
+          timeout: 2000,
+        }).stdout ?? "";
+      id = out.match(/MachineGuid\s+REG_SZ\s+([\w-]+)/i)?.[1] ?? "";
+    } else {
+      for (const p of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {
+        try {
+          id = readFileSync(p, "utf8").trim();
+          if (id) break;
+        } catch (diagnosticFailure) {
+          observeCaughtError(diagnosticFailure, "db/pglite-lock");
+          /* try the next source */
+        }
+      }
+    }
+  } catch (diagnosticFailure) {
+    observeCaughtError(diagnosticFailure, "db/pglite-lock");
+    /* platform lookup failed — fall back to hostname below */
+  }
+  // `stable` is true ONLY when a real platform UUID / machine-id was read. A
+  // hostname fallback is volatile (mDNS/DHCP name) — and, critically, this
+  // lookup can be flaky within ONE machine (e.g. the `ioreg` spawn timing out
+  // under load), so one run may read the UUID while another falls back to the
+  // hostname. Treating an unstable value as identity is exactly what caused the
+  // false "locked by a different machine" on a user's OWN box. We tag stability
+  // so the cross-machine hard-stop only fires when BOTH sides are trustworthy.
+  const trimmed = id.trim();
+  cachedMachineId = trimmed
+    ? { id: trimmed, stable: true }
+    : { id: hostname().trim(), stable: false };
+  return cachedMachineId;
+}
+
+interface LockRecord {
+  pid: number;
+  startedAt: number;
+  /** Human-readable hostname — for messages only (unstable; not for identity). */
+  host: string;
+  /** Stable machine UUID — the real identity check. Absent in pre-fix locks. */
+  machineId?: string;
+  ownerId?: string;
+  /** Linux boot ID + kernel start ticks. Absent in legacy/non-Linux locks. */
+  processStart?: string;
+  /** Written only while this owner holds the Linux kernel guard. */
+  kernelLock?: true;
+  /** PIDs are comparable only within the same Linux PID namespace. */
+  pidNamespace?: string;
+}
+
+// Path of the lock this process currently holds (null when unheld). Module-
+// scoped so the exit hook and releasePgliteLock can find it without threading
+// state through every caller.
+
+/**
+ * How long a dev `--watch` successor waits for the previous holder to exit on
+ * SIGTERM before escalating to SIGKILL.
+ *
+ * Exported because it is a CONTRACT, not a local constant: the outgoing
+ * process's shutdown must release the lock (closeDb → PGlite checkpoint) INSIDE
+ * this window, or every hot reload hard-kills the database mid-close and the
+ * next boot pays for WAL replay / recovery. Shutdown budgets are derived from
+ * this (see the API's shutdown path) so the two can't drift apart.
+ */
+export const DEV_LOCK_TAKEOVER_GRACE_MS = 3000;
+
+/** Extra window after SIGKILL for the pid to actually disappear. */
+const DEV_LOCK_HARD_KILL_MS = 1500;
+
+/**
+ * Is this process a dev hot-reload (so a lingering predecessor may be taken
+ * over)? The single definition of that condition — the lock uses it to decide
+ * whether to take over, and shutdown uses it to decide how fast it must be.
+ */
+export function isDevWatchReload(): boolean {
+  return (
+    process.execArgv.includes("--watch") || process.env.OPENSHIP_DEV_LOCK_TAKEOVER === "true"
+  );
+}
+
+export interface AcquireLockOptions {
+  /** Max time to wait for a live holder to release before failing (ms). */
+  waitMs?: number;
+  /** Poll interval while waiting (ms). */
+  pollMs?: number;
+  /**
+   * Terminate a LIVE same-machine holder and reclaim, instead of waiting then
+   * failing. For the dev hot-reload flow: `node --watch` starts the new process
+   * while the previous one still holds the lock (and may never exit on its own),
+   * so waiting just stalls → error on every file save. Default: auto-on under
+   * `--watch` or `OPENSHIP_DEV_LOCK_TAKEOVER=true`, off everywhere else (a
+   * desktop/CLI must NEVER kill a legitimate second instance — it waits + errors).
+   */
+  takeover?: boolean;
+}
+
+function readLock(lockPath: string): LockRecord | "unreadable" | "initializing" | "invalid" {
+  let text: string;
+  try { text = readFileSync(lockPath, "utf8"); }
+  catch (diagnosticFailure) {
+    observeCaughtError(diagnosticFailure, "db/pglite-lock"); return "unreadable"; }
+  try {
+    const parsed = JSON.parse(text) as Partial<LockRecord> | null;
+    if (
+      parsed !== null &&
+      typeof parsed.pid === "number" &&
+      Number.isSafeInteger(parsed.pid) && parsed.pid > 0 &&
+      typeof parsed.host === "string"
+    ) {
+      return {
+        pid: parsed.pid,
+        startedAt: typeof parsed.startedAt === "number" ? parsed.startedAt : 0,
+        host: parsed.host,
+        machineId: typeof parsed.machineId === "string" ? parsed.machineId : undefined,
+        ownerId: typeof parsed.ownerId === "string" ? parsed.ownerId : undefined,
+        processStart: typeof parsed.processStart === "string" ? parsed.processStart : undefined,
+        kernelLock: parsed.kernelLock === true ? true : undefined,
+        pidNamespace: typeof parsed.pidNamespace === "string" ? parsed.pidNamespace : undefined,
+      };
+    }
+    return "invalid";
+  } catch {
+    // The O_EXCL owner writes a JSON object. Empty bytes or an object prefix
+    // may be an in-progress write; arbitrary garbage cannot be its record.
+    return !text.trim() || text.trimStart().startsWith("{") ? "initializing" : "invalid";
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0); // signal 0 = liveness probe; sends nothing
+    return true;
+  } catch (err) {
+    observeCaughtError(err, "db/pglite-lock");
+    // ESRCH = no such process (dead). EPERM = exists but not ours (alive).
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function readProcessStart(pid: number): string | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const bootId = readFileSync(
+      "/proc/sys/kernel/random/boot_id",
+      "utf8",
+    ).trim();
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // comm (field 2) may contain spaces and parentheses. The remaining fields
+    // start after its final ')'; starttime (field 22) is then at index 19.
+    const commEnd = stat.lastIndexOf(")");
+    if (commEnd < 0) return undefined;
+    const ticks = stat
+      .slice(commEnd + 1)
+      .trim()
+      .split(/\s+/)[19];
+    return bootId && ticks && /^\d+$/.test(ticks)
+      ? `${bootId}:${ticks}`
+      : undefined;
+  } catch (error) {
+    observeCaughtError(error, "db/pglite-lock");
+    // Missing/inaccessible procfs is not proof of a dead owner.
+    return undefined;
+  }
+}
+
+function isLockHolderAlive(holder: LockRecord): boolean {
+  if (!isProcessAlive(holder.pid)) return false;
+  if (!holder.processStart) return true;
+  const currentStart = readProcessStart(holder.pid);
+  // Legacy locks and unavailable process identity retain PID-only protection.
+  return currentStart === undefined || currentStart === holder.processStart;
+}
+
+function pidNamespace(): string | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    return readlinkSync("/proc/self/ns/pid");
+  } catch (error) {
+    observeCaughtError(error, "db/pglite-lock");
+    return undefined;
+  }
+}
+
+/**
+ * flock locks an inherited duplicate of OUR descriptor, so the kernel retains
+ * the lock after the short-lived utility exits and until our descriptor closes.
+ * Keep this sidecar inode forever: unlinking it could give peers different locks.
+ */
+function tryKernelLock(lockPath: string): number | "busy" | undefined {
+  if (process.platform !== "linux") return undefined;
+  const fd = openSync(`${lockPath}.guard`, "a", 0o600);
+  let acquired = false;
+  try {
+    const result = spawnSync("flock", ["-n", "-E", "73", "3"], {
+      stdio: ["ignore", "pipe", "pipe", fd],
+      timeout: 2000,
+    });
+    if (!result.error && result.status === 0) {
+      acquired = true;
+      return fd;
+    }
+    if (!result.error && result.status === 73) return "busy";
+    throw new Error(
+      "Cannot acquire the Linux database kernel lock. Ensure util-linux (flock) is installed and the filesystem supports file locking.",
+      { cause: result.error ?? new Error(`flock exited with status ${result.status}`) },
+    );
+  } finally {
+    if (!acquired) closeSync(fd);
+  }
+}
+
+function tryRemove(lockPath: string): void {
+  try {
+    unlinkSync(lockPath);
+  } catch (diagnosticFailure) {
+    observeCaughtError(diagnosticFailure, "db/pglite-lock");
+    /* already gone, or a racing peer removed it — either way, fine */
+  }
+}
+
+/** One lock owner per connection; no process hook is installed for native instances. */
+export function createPgliteLock(options: { registerExitHook?: boolean; ownerId?: string } = {}) {
+  const ownerId = options.ownerId ?? randomUUID();
+  let heldLockPath: string | null = null;
+  let exitHookRegistered = false;
+  let kernelFd: number | undefined;
+  let kernelBusy = false;
+  let acquiring = false;
+
+  function releaseKernelLock(): void {
+    if (kernelFd === undefined) return;
+    const fd = kernelFd;
+    kernelFd = undefined;
+    closeSync(fd);
+  }
+
+  function claim(lockPath: string): void {
+    if (kernelFd === undefined) {
+      const guard = tryKernelLock(lockPath);
+      kernelBusy = guard === "busy";
+      if (guard === "busy") throw Object.assign(new Error("Database kernel lock is held"), { code: "EEXIST" });
+      kernelFd = guard;
+    }
+    const m = machineId();
+    // O_EXCL: create-or-fail atomically. The kernel guarantees exactly one caller
+    // wins even under a concurrent race — this is the exclusion primitive.
+    const fd = openSync(lockPath, "wx");
+    try {
+      const record: LockRecord = {
+        pid: process.pid,
+        startedAt: Date.now(),
+        host: hostname(),
+        ownerId,
+        processStart: readProcessStart(process.pid),
+        ...(kernelFd !== undefined ? { kernelLock: true as const, pidNamespace: pidNamespace() } : {}),
+        // Only persist a STABLE machine UUID. If we couldn't read one, omit it —
+        // the lock then reads as "pre-fix" and gets same-machine pid-liveness
+        // treatment instead of a volatile hostname masquerading as identity.
+        ...(m.stable ? { machineId: m.id } : {}),
+      };
+      writeSync(fd, JSON.stringify(record));
+    } finally {
+      closeSync(fd);
+    }
+    heldLockPath = lockPath;
+    registerExitHook();
+  }
+
+  function registerExitHook(): void {
+    if (!options.registerExitHook || exitHookRegistered) return;
+    exitHookRegistered = true;
+    // Linux keeps its descriptor until the kernel closes it at actual process
+    // exit: later exit listeners may still touch the database. Explicit close
+    // releases it normally; an unclosed owner leaves a reclaimable marked record.
+    process.once("exit", () => {
+      if (kernelFd === undefined) release();
+    });
+  }
+
+  const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+  /**
+   * Acquire exclusive access to `dataDir`, waiting up to `waitMs` for a live
+   * holder to release. Throws with an actionable message if a live instance
+   * still holds it after the wait, or if the lock belongs to another host.
+   */
+  async function acquire(dataDir: string, options: AcquireLockOptions = {}): Promise<void> {
+    if (heldLockPath || acquiring) throw new Error("This lock owner already holds or is acquiring a database lock");
+    acquiring = true;
+    try {
+      await acquireFileLock(dataDir, options);
+    } catch (error) {
+      releaseKernelLock();
+      throw error;
+    } finally {
+      acquiring = false;
+    }
+  }
+
+  async function acquireFileLock(
+    dataDir: string,
+    { waitMs = 5000, pollMs = 100, takeover }: AcquireLockOptions,
+  ): Promise<void> {
+    const lockPath = lockPathFor(dataDir);
+    const deadline = Date.now() + Math.max(0, waitMs);
+    // Dev hot-reload takes over a lingering predecessor; production/desktop never
+    // does (no `--watch`, flag unset) → they keep the safe wait-then-error path.
+    const canTakeover = takeover ?? isDevWatchReload();
+    let warnedWaiting = false;
+    let takeoverAttempted = false;
+
+    for (;;) {
+      try {
+        claim(lockPath);
+        return;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      }
+
+      // A lock file exists — classify it: stale (reclaim) or live (wait/fail).
+      const holder = readLock(lockPath);
+
+      // The kernel owner may still be publishing its JSON record. Never remove
+      // that record (even if invalid/old) while its descriptor remains locked.
+      if (kernelBusy && typeof holder !== "object") {
+        if (Date.now() >= deadline) throw new Error("Another process is already using this database (kernel lock held)");
+        await sleep(Math.max(1, pollMs));
+        continue;
+      }
+
+      if (holder === "invalid") {
+        tryRemove(lockPath);
+        continue;
+      }
+      if (holder === "unreadable") {
+        // An absent file is a handoff race. A file we cannot read is not
+        // evidence of a dead owner and must never be unlinked automatically.
+        try { statSync(lockPath); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+        throw new Error(`Cannot read the database lock at ${lockPath}`);
+      }
+      if (holder === "initializing") {
+        // Another opener may have created the file but not written its record yet.
+        // Never unlink that live O_EXCL claim in this small publication window.
+        try {
+          if (Date.now() - statSync(lockPath).mtimeMs > 10_000) tryRemove(lockPath);
+          else if (Date.now() >= deadline) throw new Error("Another process is already using this database (lock initialization in progress)");
+          else await sleep(Math.max(1, pollMs));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        continue;
+      }
+
+      // Only a lock from a genuinely DIFFERENT machine is unrecoverable (we can't
+      // probe a remote pid). A pre-fix lock has no machineId — assume this machine
+      // and let the pid-liveness check below decide, rather than trusting the
+      // volatile hostname that caused the false "different host" bug.
+      const current = machineId();
+      // A LEGACY lock (written before we stopped persisting unstable ids) stored a
+      // HOSTNAME as its machineId. A hostname is volatile (mDNS/DHCP flips
+      // "bluemac" ↔ "bluemac.local"), so comparing it to the current stable UUID
+      // falsely trips "different machine" on the box's OWN data dir. If the stored
+      // id matches a current-hostname variant, treat it as pre-fix and let the
+      // pid-liveness check below reclaim it.
+      const host = hostname().trim();
+      const short = host.split(".")[0];
+      const holderIsLegacyHostname =
+        holder.machineId != null && new Set([host, short, `${short}.local`]).has(holder.machineId);
+      if (
+        holder.machineId != null &&
+        !holderIsLegacyHostname &&
+        current.stable &&
+        holder.machineId !== current.id
+      ) {
+        throw new Error(
+          `The Openship database at ${dataDir} is locked by a process on a different machine ` +
+            `(${holder.host}, pid ${holder.pid}). PGlite data directories cannot be shared ` +
+            `across machines. If that machine no longer uses it, remove the lock file: ${lockPath}`,
+        );
+      }
+
+      if (!kernelBusy && (holder.kernelLock ? kernelFd !== undefined : !isProcessAlive(holder.pid))) {
+        // A marked owner held this same guard for its entire lifetime. Acquiring
+        // it proves the old owner released it, regardless of PID reuse/namespaces.
+        // Unmarked/legacy owners retain conservative PID-only protection.
+        tryRemove(lockPath);
+        continue;
+      }
+
+      // A LIVE same-machine holder. Under dev `--watch`, `node` starts the new
+      // process while the previous one still holds the lock and often never exits
+      // on its own — so waiting only stalls then fails on every save. Take over:
+      // terminate the stale holder (SIGTERM → brief grace → SIGKILL) and reclaim.
+      // Done ONCE; if it can't be killed (e.g. pid not ours) we fall through to
+      // the wait/error path. Linux process identity also stops escalation if the
+      // PID is reused while waiting; legacy/non-Linux locks use PID liveness.
+      const samePidNamespace = process.platform !== "linux" ||
+        (holder.pidNamespace !== undefined && holder.pidNamespace === pidNamespace());
+      if (canTakeover && samePidNamespace && holder.pid !== process.pid && !takeoverAttempted && isLockHolderAlive(holder)) {
+        takeoverAttempted = true;
+        errorDiagnostics.warn("db/pglite-lock",
+          `[db] lock held by pid ${holder.pid}; taking over (dev --watch reload) — ` +
+            `terminating the stale holder.`,
+        );
+        try {
+          process.kill(holder.pid, "SIGTERM");
+        } catch (diagnosticFailure) {
+          observeCaughtError(diagnosticFailure, "db/pglite-lock");
+          /* already gone / not ours — the loop below re-evaluates */
+        }
+        const graceUntil = Date.now() + DEV_LOCK_TAKEOVER_GRACE_MS;
+        while (isLockHolderAlive(holder) && Date.now() < graceUntil) await sleep(150);
+        if (isLockHolderAlive(holder)) {
+          try {
+            process.kill(holder.pid, "SIGKILL");
+          } catch (diagnosticFailure) {
+            observeCaughtError(diagnosticFailure, "db/pglite-lock");
+            /* already gone */
+          }
+          const hardUntil = Date.now() + DEV_LOCK_HARD_KILL_MS;
+          while (isLockHolderAlive(holder) && Date.now() < hardUntil) await sleep(100);
+        }
+        // Re-loop: a clean SIGTERM exit already removed the lock (its exit hook),
+        // and a SIGKILL leaves a dead-pid lock the next iteration reclaims.
+        continue;
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Another Openship instance is already using the database at ${dataDir} ` +
+            `(pid ${holder.pid}). PGlite allows only one process per data directory; opening a ` +
+            `second would corrupt it. Stop the other instance (e.g. quit the desktop app) and ` +
+            `retry. If you are certain no Openship process is running, remove: ${lockPath}`,
+        );
+      }
+
+      // A live holder that's likely a restarting predecessor — surface ONE line so
+      // the wait during a hot-reload handoff doesn't look like a hang.
+      if (!warnedWaiting) {
+        warnedWaiting = true;
+        console.log(
+          `[db] database at ${dataDir} is held by pid ${holder.pid} — waiting for it to ` +
+            `release (restart/hot-reload handoff)...`,
+        );
+      }
+
+      await sleep(pollMs);
+    }
+  }
+
+  /**
+   * Release the lock held by this process. No-op if we hold nothing, and refuses
+   * to delete a lock that another process has taken over (owner check).
+   */
+  function release(): void {
+    if (!heldLockPath) return;
+    try {
+      const lockPath = heldLockPath;
+      heldLockPath = null;
+      const holder = readLock(lockPath);
+      // We own it iff our pid wrote it on this machine. pid is the real check; the
+      // machineId guard just avoids clobbering a taken-over lock (legacy locks
+      // without machineId still pass on a pid match, matching prior behavior).
+      if (
+        typeof holder === "object" &&
+        holder.pid === process.pid &&
+        holder.ownerId === ownerId &&
+        (holder.machineId == null || holder.machineId === machineId().id)
+      ) {
+        tryRemove(lockPath);
+      }
+    } finally {
+      releaseKernelLock();
+    }
+  }
+  return Object.freeze({ acquire, release });
+}
+
+/** Called only after an owned worker has exited; a sibling thread's lock is never removed. */
+export function releaseExitedWorkerLock(dataDir: string, ownerId: string): void {
+  const lockPath = lockPathFor(dataDir);
+  if (typeof readLock(lockPath) !== "object") return;
+  const guard = tryKernelLock(lockPath);
+  if (guard === "busy") return;
+  try {
+    const holder = readLock(lockPath);
+    if (typeof holder === "object" && holder.pid === process.pid && holder.ownerId === ownerId &&
+        (holder.machineId == null || holder.machineId === machineId().id)) tryRemove(lockPath);
+  } finally {
+    if (guard !== undefined) closeSync(guard);
+  }
+}
+
+const processLock = createPgliteLock({ registerExitHook: true });
+export const acquirePgliteLock = processLock.acquire;
+export const releasePgliteLock = processLock.release;

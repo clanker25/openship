@@ -1,0 +1,494 @@
+{
+  "schemaVersion": 2,
+  "currency": "usd",
+  "freeDomainSuffix": ".opsh.io",
+  "annual": {
+    "enabled": true,
+    "monthsFree": 2
+  },
+  "oblien": {
+    "buildResources": {
+      "cpuCores": 2,
+      "memoryMb": 2048,
+      "diskGb": 9
+    }
+  },
+  "campaigns": [],
+  "custom": {
+    "resources": {
+      "cpuCores": {
+        "min": 1,
+        "max": 12,
+        "step": 1
+      },
+      "memoryMb": {
+        "min": 2048,
+        "max": 131072,
+        "step": 1024
+      },
+      "diskGb": {
+        "min": 25,
+        "max": 2048,
+        "step": 2
+      }
+    },
+    "extraMonthlyCents": {
+      "cpuCore": 600,
+      "memoryGb": 300,
+      "diskGb": 12
+    },
+    "extraAnnualCents": {
+      "cpuCore": 6000,
+      "memoryGb": 3000,
+      "diskGb": 110
+    }
+  },
+  "plans": [
+    {
+      "id": "free",
+      "price": {
+        "monthly": 0,
+        "annual": null
+      },
+      "stripePriceEnv": {
+        "monthly": null,
+        "annual": null
+      },
+      "popular": false,
+      "contactSales": null,
+      "support": "community",
+      "limits": {
+        "workloads": [
+          "static"
+        ],
+        "services": false,
+        "runningServices": 1,
+        "maxProjects": 0,
+        "maxResourceTier": "low",
+        "computeMinutesPerMonth": 1,
+        "buildMinutesPerMonth": 0,
+        "freeSubdomains": 10,
+        "customDomains": null,
+        "seats": null,
+        "concurrentBuilds": 0
+      },
+      "features": [
+        "staticOnly",
+        "buildMinutes",
+        "projects",
+        "freeSubdomains",
+        "communitySupport"
+      ],
+      "billing": {
+        "creditsPerCycle": 0,
+        "yearlyCreditsPerCycle": null,
+        "overdraft": 0,
+        "suspendThreshold": 0,
+        "onOverdraftAction": "stop_workspaces",
+        "resourceLimits": {
+          "max_workspaces": 0,
+          "max_vcpus": 1,
+          "max_ram_mb": 2048,
+          "max_disk_gb": 8,
+          "max_total_vcpus": 0,
+          "max_total_ram_mb": 0,
+          "max_total_disk_gb": 0
+        }
+      }
+    },
+    {
+      "id": "hobby",
+      "price": {
+        "monthly": 1200,
+        "annual": 12000
+      },
+      "stripePriceEnv": {
+        "monthly": "STRIPE_PRICE_HOBBY_MONTHLY",
+        "annual": "STRIPE_PRICE_HOBBY_ANNUAL"
+      },
+      "popular": false,
+      "contactSales": null,
+      "support": "email",
+      "inherits": "free",
+      "limits": {
+        "workloads": [
+          "static",
+          "web",
+          "worker"
+        ],
+        "services": true,
+        "runningServices": 4,
+        "maxProjects": 3,
+        "maxResourceTier": "low",
+        "maxServiceResources": {
+          "cpuCores": 1,
+          "memoryMb": 8192
+        },
+        "computeMinutesPerMonth": null,
+        "buildMinutesPerMonth": null,
+        "freeSubdomains": 10,
+        "customDomains": null,
+        "seats": null,
+        "concurrentBuilds": 1
+      },
+      "features": [
+        "everythingIn",
+        "monthlyCoverage",
+        "namespaceCapacity",
+        "sharedBuilds",
+        "anyWorkload",
+        "runningServices",
+        "power",
+        "projects",
+        "emailSupport"
+      ],
+      "billing": {
+        "creditsPerCycle": 0,
+        "yearlyCreditsPerCycle": null,
+        "overdraft": 0,
+        "suspendThreshold": 0,
+        "onOverdraftAction": "stop_workspaces",
+        "resourceLimits": {
+          "max_workspaces": 1,
+          "max_vcpus": 1,
+          "max_ram_mb": 4096,
+          "max_disk_gb": 50,
+          "max_total_vcpus": 1,
+          "max_total_ram_mb": 4096,
+          "max_total_disk_gb": 60
+        },
+        "mode": "monthly"
+      },
+      "availableForPurchase": false
+    },
+    {
+      "id": "starter",
+      "price": {
+        "monthly": 2400,
+        "annual": 24000
+      },
+      "stripePriceEnv": {
+        "monthly": "STRIPE_PRICE_STARTER_MONTHLY",
+        "annual": "STRIPE_PRICE_STARTER_ANNUAL"
+      },
+      "popular": true,
+      "contactSales": null,
+      "support": "email",
+      "inherits": "hobby",
+      "limits": {
+        "workloads": [
+          "static",
+          "web",
+          "worker"
+        ],
+        "services": true,
+        "runningServices": 15,
+        "maxProjects": 10,
+        "maxResourceTier": "medium",
+        "maxServiceResources": {
+          "cpuCores": 2,
+          "memoryMb": 8192
+        },
+        "computeMinutesPerMonth": null,
+        "buildMinutesPerMonth": null,
+        "freeSubdomains": 26,
+        "customDomains": null,
+        "seats": null,
+        "concurrentBuilds": 4
+      },
+      "features": [
+        "everythingIn",
+        "monthlyCoverage",
+        "namespaceCapacity",
+        "sharedBuilds",
+        "runningServices",
+        "power",
+        "projects",
+        "emailSupport"
+      ],
+      "billing": {
+        "creditsPerCycle": 0,
+        "yearlyCreditsPerCycle": null,
+        "overdraft": 1,
+        "suspendThreshold": 0,
+        "onOverdraftAction": "stop_workspaces",
+        "resourceLimits": {
+          "max_workspaces": 1,
+          "max_vcpus": 2,
+          "max_ram_mb": 8192,
+          "max_disk_gb": 128,
+          "max_total_vcpus": 2,
+          "max_total_ram_mb": 8192,
+          "max_total_disk_gb": 128
+        },
+        "mode": "monthly"
+      }
+    },
+    {
+      "id": "pro",
+      "price": {
+        "monthly": 4700,
+        "annual": 46700
+      },
+      "stripePriceEnv": {
+        "monthly": "STRIPE_PRICE_PRO_MONTHLY",
+        "annual": "STRIPE_PRICE_PRO_ANNUAL"
+      },
+      "popular": false,
+      "contactSales": null,
+      "support": "priority",
+      "inherits": "starter",
+      "limits": {
+        "workloads": [
+          "static",
+          "web",
+          "worker"
+        ],
+        "services": true,
+        "runningServices": 40,
+        "maxProjects": 25,
+        "maxResourceTier": "high",
+        "maxServiceResources": {
+          "cpuCores": 3,
+          "memoryMb": 16384
+        },
+        "computeMinutesPerMonth": null,
+        "buildMinutesPerMonth": null,
+        "freeSubdomains": 100,
+        "customDomains": null,
+        "seats": null,
+        "concurrentBuilds": 8
+      },
+      "features": [
+        "everythingIn",
+        "monthlyCoverage",
+        "namespaceCapacity",
+        "sharedBuilds",
+        "runningServices",
+        "power",
+        "projects",
+        "prioritySupport"
+      ],
+      "billing": {
+        "creditsPerCycle": 0,
+        "yearlyCreditsPerCycle": null,
+        "overdraft": 0,
+        "suspendThreshold": 0,
+        "onOverdraftAction": "stop_workspaces",
+        "resourceLimits": {
+          "max_workspaces": 0,
+          "max_vcpus": 4,
+          "max_ram_mb": 32768,
+          "max_disk_gb": 250,
+          "max_total_vcpus": 4,
+          "max_total_ram_mb": 16384,
+          "max_total_disk_gb": 250
+        },
+        "mode": "monthly"
+      }
+    },
+    {
+      "id": "team",
+      "price": {
+        "monthly": 11900,
+        "annual": 118800
+      },
+      "stripePriceEnv": {
+        "monthly": "STRIPE_PRICE_TEAM_MONTHLY",
+        "annual": "STRIPE_PRICE_TEAM_ANNUAL"
+      },
+      "popular": false,
+      "contactSales": null,
+      "support": "priority",
+      "inherits": "pro",
+      "limits": {
+        "workloads": [
+          "static",
+          "web",
+          "worker"
+        ],
+        "services": true,
+        "runningServices": 100,
+        "maxProjects": 60,
+        "maxResourceTier": "xlarge",
+        "maxServiceResources": {
+          "cpuCores": 8,
+          "memoryMb": 32768
+        },
+        "computeMinutesPerMonth": null,
+        "buildMinutesPerMonth": null,
+        "freeSubdomains": null,
+        "customDomains": null,
+        "seats": null,
+        "concurrentBuilds": 20
+      },
+      "features": [
+        "everythingIn",
+        "monthlyCoverage",
+        "namespaceCapacity",
+        "sharedBuilds",
+        "runningServices",
+        "power",
+        "projects",
+        "freeSubdomainsUnlimited",
+        "prioritySupport"
+      ],
+      "billing": {
+        "creditsPerCycle": 0,
+        "yearlyCreditsPerCycle": null,
+        "overdraft": 0,
+        "suspendThreshold": 0,
+        "onOverdraftAction": "stop_workspaces",
+        "resourceLimits": {
+          "max_workspaces": 1,
+          "max_vcpus": 8,
+          "max_ram_mb": 32768,
+          "max_disk_gb": 600,
+          "max_total_vcpus": 8,
+          "max_total_ram_mb": 32768,
+          "max_total_disk_gb": 600
+        },
+        "mode": "monthly"
+      }
+    },
+    {
+      "id": "enterprise",
+      "price": {
+        "monthly": null,
+        "annual": null
+      },
+      "stripePriceEnv": {
+        "monthly": null,
+        "annual": null
+      },
+      "popular": false,
+      "contactSales": "mailto:sales@openship.io",
+      "support": "dedicated",
+      "inherits": "team",
+      "limits": {
+        "workloads": [
+          "static",
+          "web",
+          "worker"
+        ],
+        "services": true,
+        "runningServices": null,
+        "maxProjects": null,
+        "maxResourceTier": null,
+        "computeMinutesPerMonth": null,
+        "buildMinutesPerMonth": null,
+        "freeSubdomains": null,
+        "customDomains": null,
+        "seats": null,
+        "concurrentBuilds": null
+      },
+      "features": [
+        "everythingIn",
+        "customLimits",
+        "sso",
+        "dedicatedInfra",
+        "onboarding",
+        "dedicatedSupport"
+      ],
+      "billing": {
+        "creditsPerCycle": null,
+        "yearlyCreditsPerCycle": null,
+        "overdraft": 0,
+        "suspendThreshold": 0,
+        "onOverdraftAction": "stop_workspaces",
+        "resourceLimits": {
+          "max_workspaces": null,
+          "max_vcpus": null,
+          "max_ram_mb": null,
+          "max_disk_gb": null,
+          "max_total_vcpus": null,
+          "max_total_ram_mb": null,
+          "max_total_disk_gb": null
+        }
+      }
+    }
+  ],
+  "actions": {
+    "version": 2,
+    "currency": "usd",
+    "depositsCents": [
+      500,
+      2000,
+      5000,
+      10000
+    ],
+    "runners": [
+      {
+        "id": "linux_2",
+        "cpuCores": 2,
+        "memoryMb": 8192,
+        "diskGb": 40
+      },
+      {
+        "id": "linux_4",
+        "cpuCores": 4,
+        "memoryMb": 8192,
+        "diskGb": 80
+      },
+      {
+        "id": "linux_8",
+        "cpuCores": 8,
+        "memoryMb": 32768,
+        "diskGb": 150
+      }
+    ],
+    "maxParallel": 1
+  },
+  "creditPacks": [
+    {
+      "id": "pack_400",
+      "creditsMilli": 400000,
+      "priceCents": 500,
+      "stripePriceEnv": "STRIPE_PRICE_PACK_400",
+      "sortOrder": 10
+    },
+    {
+      "id": "pack_1700",
+      "creditsMilli": 1600000,
+      "priceCents": 1000,
+      "stripePriceEnv": "STRIPE_PRICE_PACK_1700",
+      "sortOrder": 30
+    },
+    {
+      "id": "pack_4500",
+      "creditsMilli": 4500000,
+      "priceCents": 5000,
+      "stripePriceEnv": "STRIPE_PRICE_PACK_4500",
+      "sortOrder": 30
+    }
+  ],
+  "standard": {
+    "features": [
+      "gitDeploys",
+      "customDomains",
+      "deployLogs",
+      "auditLog",
+      "unlimitedSeats"
+    ]
+  },
+  "selfHosted": {
+    "features": [
+      "selfHostedOpenSource",
+      "selfHostedUnlimited",
+      "selfHostedServices",
+      "selfHostedClients",
+      "selfHostedFreeSubdomains",
+      "communitySupport"
+    ]
+  },
+  "management": {
+    "version": 3,
+    "monthlyCents": 500,
+    "includedServers": 2,
+    "extraServerMonthlyCents": 300,
+    "maxServers": 100,
+    "includedWithCloud": true,
+    "dedicatedContact": "sales@openship.io",
+    "priorityMonthlyCents": 2000
+  }
+}

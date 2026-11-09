@@ -1,0 +1,73 @@
+"use client";
+
+import { Icon as UiIcon } from "@repo/ui/icons";
+
+/**
+ * Wizard "Routing" advanced section — a collapsible card wrapping the shared
+ * RoutingConfigEditor, bound to the deployment config. Detected from the repo's
+ * vercel.json at prepare; edits flow into `config.routingConfig` and are sent to
+ * the backend on deploy (compiled to OpenResty for self-hosted).
+ */
+
+import React, { useState } from "react";
+import type { RoutingConfig } from "@repo/core";
+import { useDeployment } from "@/context/DeploymentContext";
+import { RoutingConfigEditor } from "@/components/routing/RoutingConfigEditor";
+import { useI18n } from "@/components/i18n-provider";
+
+function countRules(cfg: RoutingConfig | null | undefined): number {
+  return (
+    (cfg?.rewrites?.length ?? 0) +
+    (cfg?.redirects?.length ?? 0) +
+    (cfg?.headers?.length ?? 0) +
+    (cfg?.cleanUrls ? 1 : 0) +
+    (cfg?.trailingSlash !== undefined ? 1 : 0) +
+    (cfg?.spaFallback !== undefined ? 1 : 0)
+  );
+}
+
+const RoutingSection: React.FC = () => {
+  const { config, updateConfig } = useDeployment();
+  const { t } = useI18n();
+  const r = t.importProject.routingSection;
+  const routing = config.routingConfig;
+  const count = countRules(routing);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="bg-card rounded-2xl">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 rounded-2xl px-5 py-4 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <UiIcon name="route" className="w-4 h-4 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">
+              {r.title}{count > 0 ? ` · ${count}` : ""}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {r.descDetected}
+            </p>
+          </div>
+        </div>
+        {open ? (
+          <UiIcon name="chevron-up" className="size-4 text-muted-foreground" />
+        ) : (
+          <UiIcon name="chevron-down" className="size-4 text-muted-foreground" />
+        )}
+      </button>
+      {open && (
+        <div className="border-t border-border/40 px-5 py-5">
+          <RoutingConfigEditor value={routing} onChange={(next) => updateConfig({ routingConfig: next })} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default RoutingSection;

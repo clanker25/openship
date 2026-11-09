@@ -1,0 +1,266 @@
+{
+  "time": {
+    "secondsAgo": "il y a {n} s",
+    "minutesAgo": "il y a {n} min",
+    "hoursAgo": "il y a {n} h",
+    "daysAgo": "il y a {n} j",
+    "monthsAgo": "il y a {n} mois",
+    "yearsAgo": "il y a {n} an(s)"
+  },
+  "header": {
+    "title": "Déploiements",
+    "loading": "Chargement…",
+    "countProjectOne": "{count} déploiement",
+    "countProjectOther": "{count} déploiements",
+    "countAllOne": "{deployments} au total sur {projects} projet",
+    "countAllOther": "{deployments} au total sur {projects} projets"
+  },
+  "filters": {
+    "searchPlaceholder": "Rechercher des déploiements...",
+    "all": "Tous",
+    "success": "Réussis",
+    "failed": "Échoués",
+    "building": "En construction",
+    "canceled": "Annulés"
+  },
+  "projectFilter": {
+    "allProjects": "Tous les projets"
+  },
+  "sidebar": {
+    "overview": {
+      "title": "Vue d'ensemble",
+      "total": "Total",
+      "successful": "Réussis",
+      "failed": "Échoués",
+      "inProgress": "En cours",
+      "pageTitle": "Sur cette page"
+    },
+    "autoDeploy": {
+      "title": "Déploiement automatique",
+      "description": "Activez le déploiement automatique pour déclencher les déploiements à chaque push sur votre branche principale.",
+      "cta": "Accéder aux paramètres du projet"
+    },
+    "getStarted": {
+      "title": "Commencer",
+      "description": "Importez un dépôt Git ou utilisez un modèle pour créer votre premier déploiement.",
+      "cta": "Déployer un projet"
+    },
+    "recent": {
+      "title": "Récents",
+      "empty": "Vos déploiements apparaîtront ici",
+      "unknown": "Inconnu"
+    }
+  },
+  "stats": {
+    "total": "Total",
+    "projectCountOne": "{count} projet",
+    "projectCountOther": "{count} projets",
+    "success": "Réussis",
+    "failed": "Échoués",
+    "inProgress": "En cours",
+    "buildingNow": "en construction"
+  },
+  "status": {
+    "deployed": "Déployé",
+    "failed": "Échoué",
+    "canceled": "Annulé",
+    "building": "En construction",
+    "deploying": "Déploiement en cours",
+    "partial": "Partiel",
+    "actionRequired": "Action requise",
+    "rejected": "Rejeté",
+    "verifying": "Vérification",
+    "noChanges": "Aucun changement",
+    "pending": "En attente"
+  },
+  "serviceStatus": {
+    "deployed": "Déployé",
+    "failed": "Échoué",
+    "cancelled": "Annulé",
+    "skipped": "Ignoré",
+    "building": "En construction",
+    "deploying": "Déploiement en cours",
+    "running": "En cours d'exécution",
+    "removedOnHost": "Supprimé sur l'hôte",
+    "verifying": "Vérification",
+    "pending": "En attente"
+  },
+  "card": {
+    "unknownProject": "Projet inconnu",
+    "versionTitle": "Version {version}",
+    "active": "Actif",
+    "activeTitle": "Il s'agit du déploiement qui sert actuellement le projet",
+    "pinned": "Épinglé",
+    "pinnedTitle": "Épinglé — exempté de la purge de rétention. Reste restaurable par rollback indéfiniment.",
+    "snapshotted": "Instantané",
+    "snapshottedTitle": "Artéfact archivé — cette version est disponible pour un rollback",
+    "manualDeploy": "Déploiement manuel",
+    "serviceTitle": "{name} : {label}",
+    "serviceTitleReason": "{name} : {label} ({reason})"
+  },
+  "empty": {
+    "filtered": {
+      "title": "Aucun déploiement trouvé",
+      "description": "Essayez d'ajuster vos filtres ou d'effacer votre recherche."
+    },
+    "none": {
+      "title": "Aucun déploiement pour le moment",
+      "description": "Déployez votre premier projet et il apparaîtra ici avec le statut de construction, les détails du commit et les métriques de performance.",
+      "deployButton": "Déployer un projet",
+      "browseButton": "Parcourir les modèles"
+    }
+  },
+  "modal": {
+    "title": "Détails du commit",
+    "project": "Projet",
+    "unknownProject": "Projet inconnu",
+    "domain": "Domaine",
+    "noDomain": "Aucun domaine",
+    "status": "Statut",
+    "environment": "Environnement",
+    "statusName": {
+      "success": "Réussi",
+      "failed": "Échoué",
+      "building": "En construction",
+      "deploying": "Déploiement en cours",
+      "canceled": "Annulé",
+      "pending": "En attente"
+    },
+    "changedFiles": "Fichiers modifiés ({count})",
+    "fileTypes": {
+      "added": "+ Ajouté",
+      "modified": "~ Modifié",
+      "removed": "- Supprimé"
+    },
+    "viewOnGithub": "Voir sur GitHub",
+    "visitSite": "Visiter le site",
+    "manual": {
+      "title": "Déploiement manuel",
+      "description": "Ce déploiement a été déclenché manuellement et ne contient pas d'informations de commit.",
+      "deploymentId": "ID de déploiement",
+      "created": "Créé",
+      "type": "Type",
+      "typeManual": "Manuel"
+    }
+  },
+  "menu": {
+    "openDeployment": "Ouvrir le déploiement",
+    "viewRepository": "Voir le dépôt",
+    "copyDomainUrl": "Copier l'URL du domaine",
+    "copyBuildId": "Copier l'ID de construction",
+    "cancelDeployment": "Annuler le déploiement",
+    "rollback": "Revenir à cette version",
+    "rollbackTitle": {
+      "enabled": "Restaurer le projet à cette version (code uniquement — les données restent inchangées)",
+      "active": "Il s'agit déjà de la version active",
+      "pruned": "Ce déploiement n'a ni image conservée ni commit à reconstruire",
+      "notReady": "Seuls les déploiements prêts peuvent faire l'objet d'un rollback",
+      "rebuildOnly": "Restaurer cette version en reconstruisant son commit (son image a été supprimée)"
+    },
+    "pin": "Épingler",
+    "unpin": "Désépingler",
+    "pinTitle": {
+      "pin": "Garder ce déploiement restaurable par rollback indéfiniment (limite : 10 épinglés par projet)",
+      "unpin": "Autoriser la purge de ce déploiement en cas de dépassement de la rétention",
+      "pruned": "Impossible d'épingler — l'artéfact a déjà été purgé"
+    },
+    "deleteDeployment": "Supprimer le déploiement",
+    "rollbackFailed": "Échec du rollback",
+    "pinFailed": "Échec de l'épinglage du déploiement",
+    "unpinFailed": "Échec du désépinglage du déploiement",
+    "rollbackModeInstant": "Restauration instantanée — réutilise l'image conservée de cette version, sans reconstruction.",
+    "rollbackModeRebuild": "Reconstruction — l'image de cette version n'est plus sur l'hôte, son commit est reconstruit.",
+    "rollbackModeReacquireImage": "Restauration depuis le registre — récupère la référence d'image exacte enregistrée pour cette version, sans reconstruire les sources.",
+    "rollbackModeMixed": "Presque instantané — {count} service(s) ont perdu leur image et seront reconstruits."
+  },
+  "rollbackConfirm": {
+    "title": "Revenir à cette version ?",
+    "dataUnchanged": "Seul le code de l'application est restauré. Les données de base de données et de volumes ne changent pas.",
+    "envHeading": "Variables d'environnement",
+    "envSummaryOverlay": "{count} variable(s) changent — les valeurs de cette version sont réappliquées par-dessus les actuelles.",
+    "envSummaryReplace": "{count} variable(s) changent — l'environnement de cette version est utilisé tel qu'il a été capturé.",
+    "envNoChanges": "Aucune variable d'environnement ne change.",
+    "envUnchanged": "Le conteneur existant est redémarré et non recréé : son environnement reste intact.",
+    "envNoValues": "Les valeurs ne sont jamais affichées ici.",
+    "envTruncated": "Affichage de {shown} sur {total}.",
+    "dirFrozenWins": "revient à la valeur de cette version",
+    "dirRemovedSince": "réapparaît — supprimée depuis cette version",
+    "dirAddedSinceKept": "conservée telle quelle — ajoutée après cette version",
+    "dirAddedSinceDropped": "supprimée — ajoutée après cette version",
+    "scopeAmbiguous": "capturée sans portée de service : une seule valeur s'applique à tous les services",
+    "untouchedHeading": "Services ajoutés après cette version",
+    "untouchedNote": "Ils continuent de tourner et ne sont pas touchés : {names}",
+    "confirm": "Revenir",
+    "cancel": "Annuler"
+  },
+  "loadFailed": "Impossible de charger les déploiements.",
+  "retry": "Réessayer",
+  "pagination": {
+    "label": "Pages de l’historique des déploiements",
+    "previous": "Page précédente",
+    "next": "Page suivante",
+    "pageOf": "Page {page} sur {total}",
+    "range": "Déploiements {from}–{to} sur {total}"
+  },
+  "resourceGuidance": {
+    "label": "Conseils sur les ressources du déploiement",
+    "reviewCapacity": "Examiner la capacité",
+    "reviewTitle": "Examiner la capacité de l’espace Cloud",
+    "reviewHint": "Vérifiez d’abord l’utilisation et les limites configurées. La mise à niveau est facultative ; ouvrir cet écran ne modifie ni ne relance le déploiement.",
+    "slowTitle": "Cette compilation prend du temps",
+    "slowDescription": "Les téléchargements, le réseau ou les commandes peuvent être lents. Plus de capacité peut aider les compilations intensives ; consultez d’abord les journaux.",
+    "titles": {
+      "container-oom": "Le conteneur a manqué de mémoire",
+      "memory-allocation": "Échec de l’allocation mémoire",
+      "process-heap": "Limite du tas de l’application atteinte",
+      "storage-full": "Échec de l’allocation du stockage",
+      "storage-low": "Stockage libre insuffisant pour compiler",
+      "process-killed": "Le processus de compilation a été arrêté"
+    },
+    "causes": {
+      "container-oom": "Docker a confirmé un arrêt par manque de mémoire. Vérifiez la limite du conteneur et la capacité de l’espace Cloud avant de réessayer.",
+      "memory-allocation": "Le processus n’a pas pu allouer de mémoire. Vérifiez les limites configurées et la capacité disponible avant de choisir un forfait supérieur.",
+      "process-heap": "Le processus a atteint sa propre limite de tas. Vérifiez les paramètres d’exécution ; un forfait supérieur seul pourrait ne pas suffire.",
+      "storage-full": "L’opération a épuisé l’espace disque ou les inodes. Examinez l’utilisation et les artefacts inutilisés en préservant les données de l’application.",
+      "storage-low": "Le système de fichiers Docker manque d’espace libre ou d’inodes. Examinez l’utilisation ou augmentez le stockage.",
+      "process-killed": "Le processus a reçu SIGKILL (code de sortie 137). Cela seul ne prouve pas un manque de mémoire. Consultez les journaux."
+    }
+  },
+  "cloudBuildQueue": {
+    "label": "File de compilation Cloud",
+    "title": "Compilation en attente",
+    "position": "Compilation en attente · Position {position}",
+    "concurrency": "En attente d’une place pour une compilation simultanée.",
+    "resources": "En attente de processeur ou de mémoire disponible sur le serveur.",
+    "server": "En attente de l’acceptation de cette compilation par le serveur.",
+    "automaticStart": "Elle démarrera automatiquement.",
+    "allowance": "Compilations simultanées autorisées par votre offre : {count}.",
+    "unlimited": "Votre offre ne limite pas les compilations simultanées.",
+    "active": "Compilations actives : {count}.",
+    "comparePlans": "Comparer les offres",
+    "optionalUpgrade": "Le changement d’offre est facultatif. Vous pouvez continuer à attendre.",
+    "compareConcurrency": "Comparez les offres pour exécuter davantage de compilations simultanées. Votre compilation peut rester dans la file d’attente.",
+    "compareResources": "Comparez les offres pour obtenir plus de processeur ou de mémoire. Vous pouvez continuer à attendre que des ressources soient disponibles sur le serveur."
+  },
+  "monitoring": {
+    "title": "Vue des déploiements",
+    "scope": "Projet et recherche sélectionnés · jours UTC · historique conservé",
+    "period": "Période",
+    "days": "{count} jours",
+    "refresh": "Actualiser",
+    "attempts": "Tentatives de déploiement",
+    "window": "Sur la période sélectionnée",
+    "successRate": "Taux de réussite",
+    "rateHint": "Réussis / (réussis + échoués) ; hors annulations",
+    "failedHint": "Inclut les versions partielles et bloquées",
+    "activeHint": "Tentatives en cours ou en attente sur cette période",
+    "unavailable": "Vue indisponible. Essayez d’actualiser.",
+    "trend": "Résultats quotidiens",
+    "avgBuild": "Build réussi moyen",
+    "empty": "Aucun déploiement sur cette période.",
+    "projects": "Détail par projet",
+    "projectHint": "Les 6 premiers par échecs, puis tentatives actives",
+    "failedShort": "échoués",
+    "history": "Historique des déploiements"
+  }
+}

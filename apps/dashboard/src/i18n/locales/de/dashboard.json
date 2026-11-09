@@ -1,0 +1,270 @@
+{
+  "home": {
+    "goodMorning": "Guten Morgen",
+    "goodAfternoon": "Guten Tag",
+    "goodEvening": "Guten Abend",
+    "subtitle": "Das passiert gerade in Ihren Projekten",
+    "statsProjects": "Projekte",
+    "statsDeployments": "Deployments",
+    "statsSuccessful": "Erfolgreich",
+    "statsFailed": "Fehlgeschlagen",
+    "recentProjects": "Aktuelle Projekte",
+    "yourLatestActivity": "Ihre neuesten Aktivitäten",
+    "viewAll": "Alle anzeigen",
+    "noProjectsYet": "Noch keine Projekte",
+    "createFirstProject": "Erstellen Sie Ihr erstes Projekt",
+    "justNow": "gerade eben",
+    "minutesAgo": "vor {n} Min.",
+    "hoursAgo": "vor {n} Std.",
+    "daysAgo": "vor {n} T.",
+    "monthsAgo": "vor {n} Mon.",
+    "statusLive": "Live",
+    "statusPaused": "Pausiert",
+    "yourProjects": "Ihre Projekte",
+    "loading": "Wird geladen...",
+    "projectCountOne": "{count} Projekt",
+    "projectCountOther": "{count} Projekte",
+    "viewAllProjects": "Alle {count} Projekte anzeigen →",
+    "viewAllApps": "Alle {count} Apps anzeigen →",
+    "greetingName": "{greeting}, {name}",
+    "importGit": "Git importieren",
+    "importGitDesc": "Aus Repository",
+    "mcpDeploy": "MCP Deploy",
+    "mcpDeployDesc": "KI-Agenten verbinden",
+    "settingsCard": "Einstellungen",
+    "settingsCardDesc": "Konto & Team",
+    "docs": "Dokumentation",
+    "docsDesc": "Mehr erfahren",
+    "activityTitle": "Aktivität",
+    "systemStatus": "Systemstatus",
+    "operational": "Betriebsbereit",
+    "oneIssue": "1 Problem",
+    "manyIssues": "{n} Probleme",
+    "recentTitle": "Neueste",
+    "activityEmpty": "Ihre Aktivitäten werden hier angezeigt",
+    "allSystemsOperational": "Alle Systeme betriebsbereit",
+    "runningSmoothly": "Ihre Projekte laufen reibungslos",
+    "time": {
+      "justNow": "gerade eben",
+      "minutes": "vor {n} Min.",
+      "hours": "vor {n} Std.",
+      "days": "vor {n} T.",
+      "months": "vor {n} Mon."
+    },
+    "appsEmptyTitle": "Noch keine Apps",
+    "appsEmptyDesc": "Ein Klick, vollständig selbst gehostet — Datenbanken, Automatisierung, Analytics, Passwort-Vaults und mehr, auf deinen eigenen Servern."
+  },
+  "nav": {
+    "referrals": "Empfehlungen",
+    "resources": "Cloud-Bereiche",
+    "support": "Support",
+    "scale": "Skalierung",
+    "home": "Startseite",
+    "new-project": "Neues Projekt",
+    "projects": "Projekte",
+    "deployments": "Deployments",
+    "issues": "Monitoring",
+    "backups": "Backups",
+    "domains": "Domains",
+    "monitoring": "Monitoring",
+    "servers": "Server",
+    "emails": "E-Mails",
+    "settings": "Einstellungen",
+    "billing": "Tarife & Abrechnung",
+    "audit": "Audit-Log",
+    "mailSetup": "Mail einrichten",
+    "mailSetupProgress": "Einrichtungsfortschritt",
+    "addMailbox": "Postfach hinzufügen",
+    "webmail": "Webmail",
+    "sections": {
+      "help": "Hilfe",
+      "main": "Allgemein",
+      "settings": "Einstellungen",
+      "infrastructure": "Infrastruktur",
+      "mail": "E-Mail",
+      "delivery": "Zustellung",
+      "system": "System",
+      "account": "Konto"
+    },
+    "apps": "Apps",
+    "jobs": "Jobs",
+    "workspaces": "Arbeitsbereiche",
+    "actions": "Aktionen",
+    "assistant": "KI-Agenten"
+  },
+  "sidebar": {
+    "expand": "Seitenleiste ausklappen",
+    "collapse": "Seitenleiste einklappen"
+  },
+  "user": {
+    "logout": "Abmelden",
+    "loggingOut": "Wird abgemeldet…",
+    "profile": "Profil",
+    "preferences": "Voreinstellungen"
+  },
+  "pages": {
+    "apps": {
+      "moreApps": "+{count} weitere",
+      "title": "Apps",
+      "description": "Managed Services mit einem Klick — installiere und betreibe Convex, WordPress, Mail und mehr.",
+      "createButton": "App installieren",
+      "loading": "Apps werden geladen…",
+      "countOne": "{count} App installiert",
+      "countOther": "{count} Apps installiert",
+      "emptyTitle": "Installiere deine erste App",
+      "emptyDescription": "Starte Convex, n8n, Ghost und mehr — ein Klick, vollständig selbst gehostet. Wähle eins, um zu beginnen.",
+      "popular": "Beliebte Apps",
+      "alsoDeploy": "Du kannst außerdem bereitstellen",
+      "browseAll": "Alle Apps ansehen",
+      "catalogTitle": "App installieren",
+      "catalogDescription": "Managed Services mit einem Klick. Wähle einen aus, um ihn als App zu installieren.",
+      "catalogSearchPlaceholder": "Apps suchen…",
+      "catalogNoResults": "Keine Apps entsprechen deiner Suche.",
+      "cancel": "Abbrechen",
+      "install": "Installieren",
+      "installing": "Wird installiert…",
+      "comingSoon": "Bald verfügbar",
+      "configTitle": "{app} konfigurieren",
+      "nameLabel": "Name",
+      "categories": {
+        "all": "Alle",
+        "backend": "Backend",
+        "database": "Datenbank",
+        "cms": "CMS",
+        "analytics": "Analytics",
+        "automation": "Automatisierung",
+        "mail": "Mail",
+        "other": "Tools",
+        "ai": "KI & Modelle"
+      },
+      "addCustom": "Eigene hinzufügen",
+      "howToAddApp": "Wie man eine App hinzufügt",
+      "removeCustomApp": "Benutzerdefinierte App entfernen",
+      "needsUpdateDesc": "Aktualisieren Sie Ihre Openship-Instanz, um diese App zu installieren.",
+      "needsUpdateBadge": "Aktualisierung erforderlich",
+      "needsVersionBadge": "Erfordert v{version}",
+      "removedToast": "„{name}“ entfernt.",
+      "removeFailedToast": "Die App konnte nicht entfernt werden.",
+      "gpu": {
+        "recommended": "GPU empfohlen",
+        "required": "NVIDIA-GPU erforderlich",
+        "mode": "Rechenleistung",
+        "cpu": "Nur CPU",
+        "nvidia": "NVIDIA-GPU",
+        "hint": "Der NVIDIA-Modus benötigt einen kompatiblen Treiber und das NVIDIA Container Toolkit auf deinem Server.",
+        "cloudUnsupported": "Diese App unterstützt nur eigene Server. Wähle einen verbundenen eigenen Server.",
+        "selfHostedOnly": "Nur eigener Server",
+        "noGpu": "Keine GPU erkannt. Prüfe den NVIDIA-Treiber und das Container Toolkit oder wähle CPU."
+      }
+    },
+    "projects": {
+      "title": "Projekte",
+      "description": "Stellen Sie Ihre Anwendungen mühelos bereit und verwalten Sie sie",
+      "createButton": "Projekt erstellen",
+      "stats": {
+        "totalProjects": "Projekte gesamt",
+        "liveNow": "Jetzt live",
+        "avgPerDay": "Ø pro Tag",
+        "successRate": "Erfolgsquote"
+      },
+      "searchPlaceholder": "Projekte durchsuchen...",
+      "pinnedProjects": "Angeheftete Projekte",
+      "otherProjects": "Weitere Projekte",
+      "noResultsFound": "Keine Projekte gefunden für \"{query}\"",
+      "emptyState": {
+        "title": "Starten Sie Ihr erstes Projekt",
+        "description": "Importieren Sie ein Git-Repository, verwenden Sie eine Vorlage oder stellen Sie über die CLI bereit. Ihre Projekte werden hier angezeigt.",
+        "createProject": "Projekt erstellen",
+        "browseTemplates": "Vorlagen durchsuchen",
+        "zeroConfig": "Zero-Config-Deployment",
+        "instant": "Sofort",
+        "instantDesc": "In Sekunden bereitstellen",
+        "global": "Global",
+        "globalDesc": "Über 100 Edge-Regionen",
+        "previews": "Vorschauen",
+        "previewsDesc": "URL pro Branch",
+        "rollbacks": "Rollbacks",
+        "rollbacksDesc": "Zurücksetzen mit einem Klick",
+        "commandPalette": "Oder drücken Sie {key}, um die Befehlspalette zu öffnen"
+      },
+      "view": {
+        "label": "Ansicht",
+        "list": "Liste",
+        "grid": "Raster"
+      }
+    },
+    "deployments": {
+      "title": "Deployments",
+      "description": "Sehen und verwalten Sie Ihren Deployment-Verlauf."
+    },
+    "domains": {
+      "title": "Domains",
+      "description": "Verwalten Sie benutzerdefinierte Domains und DNS-Einträge."
+    },
+    "monitoring": {
+      "title": "Monitoring",
+      "description": "Logs, Metriken und Health-Checks für Ihre Dienste."
+    },
+    "servers": {
+      "title": "Server",
+      "description": "Verwalten Sie Ihre Deployment-Server und Ihre Infrastruktur."
+    },
+    "settings": {
+      "title": "Einstellungen",
+      "description": "Konto-, Team- und Plattformeinstellungen."
+    },
+    "billing": {
+      "title": "Abrechnung & Nutzung",
+      "description": "Verwalten Sie Ihr Abonnement, Ihre Nutzung und Ihre Zahlungsmethoden."
+    }
+  },
+  "quickLinks": {
+    "title": "Schnellaktionen",
+    "subtitle": "Direkt zu häufigen Aufgaben",
+    "deployProject": {
+      "title": "Projekt bereitstellen",
+      "description": "Aus Git importieren"
+    },
+    "projects": {
+      "title": "Projekte",
+      "description": "Alle Projekte"
+    },
+    "deployments": {
+      "title": "Deployments",
+      "description": "Build-Verlauf"
+    },
+    "settings": {
+      "title": "Einstellungen",
+      "description": "Zugriff verwalten"
+    },
+    "domains": {
+      "title": "Domains",
+      "description": "Benutzerdefinierte Domains"
+    },
+    "billing": {
+      "title": "Abrechnung & Nutzung",
+      "description": "Nutzung & Tarife"
+    }
+  },
+  "investigation": {
+    "action": "Mit KI untersuchen",
+    "deploymentTitle": "Diese Bereitstellung untersuchen",
+    "issueTitle": "Dieses App-Problem untersuchen",
+    "description": "Prüfe die Anfrage, ergänze hilfreiche Details und sende sie an deinen Assistenten.",
+    "setup": "Deine Untersuchung ist vorbereitet. Aktiviere den Assistenten und verbinde einen Agenten, um fortzufahren.",
+    "invalid": "Dieser Link ist ungültig oder gehört zu einem anderen Arbeitsbereich oder Konto. Öffne das ursprüngliche Problem in seinem Arbeitsbereich und versuche es erneut.",
+    "back": "Assistent öffnen",
+    "deploymentPrompt": "Untersuche die fehlgeschlagene Bereitstellung {deploymentId}.",
+    "issuePrompt": "Untersuche das App-Problem {issueId}.",
+    "appContext": "App-ID: {projectId}.",
+    "instructions": "Prüfe mit OpenShip-Werkzeugen den aktuellen Status und relevante Logs. Erkläre die wahrscheinliche Ursache anhand von Belegen und schlage den nächsten Schritt vor. Untersuche zuerst, ohne Änderungen vorzunehmen. Fordere bei fehlendem Zugriff die konkret benötigten Berechtigungen an.",
+    "fixAction": "Mit KI beheben",
+    "fixTitle": "Dieses App-Problem beheben",
+    "securityPrompt": "Untersuche und behebe den Sicherheitshinweis {advisoryId} für diese App. Lies die aktuellen OpenShip-Sicherheitsbefunde und die offiziellen Hinweise, prüfe betroffene Dienste und ihre wirksame Konfiguration und setze im genehmigten Zugriff eine dauerhafte Lösung um. Stelle betroffene Worker bei Bedarf neu bereit und überprüfe das Ergebnis. Eine passende Laufzeitversion allein beweist keine ausnutzbare Anwendung. Verberge die Warnung nicht und behaupte keine Behebung ohne Nachweis. Prüfe zuerst, ob das Advisory zutrifft. Falls nicht, dokumentiere die Nachweise und ändere die Dienste nicht.",
+    "fixPrompt": "Untersuche und behebe das App-Problem {issueId}.",
+    "fixInstructions": "Prüfe mit den OpenShip-Tools das aktuelle Problem, den Status und relevante Protokolle. Ermittle die Ursache, wende eine geeignete Lösung innerhalb deiner genehmigten Zugriffsrechte an und überprüfe das Ergebnis. Fehlen Rechte oder eine nötige Entscheidung, biete die passende Prüfung direkt im Chat an. Berichte über Änderungen und verbleibende Probleme; bestätige die Wiederherstellung nur anhand beobachteter Nachweise.",
+    "reportAction": "KI-Zustandsbericht",
+    "reportTitle": "Zustandsbericht des Arbeitsbereichs",
+    "reportPrompt": "Prüfe den aktuellen Zustand der Apps, Deployments, Dienste und zugänglichen Server dieses Arbeitsbereichs mit den Überwachungs- und Zustandstools von OpenShip. Fasse zusammen, was funktioniert, was Aufmerksamkeit braucht, welche Nachweise vorliegen und welche nächsten Schritte sinnvoll sind. Benenne veraltete oder nicht verfügbare Überwachungsdaten und Zugriffsbeschränkungen. Eine leere Problemliste beweist keinen gesunden Zustand. Erstelle einen Bericht ohne Änderungen an Ressourcen oder Anforderung instanzweiter Administratordiagnosen."
+  }
+}
