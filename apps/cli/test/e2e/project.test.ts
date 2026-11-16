@@ -1,0 +1,472 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../../src/lib/config", () => ({
+  getApiUrl: () => "http://api.test",
+  getToken: () => "tok",
+}));
+vi.mock("../../src/lib/caps", () => ({
+  fetchCaps: async () => ({ selfHosted: true }),
+  requireSelfHost: () => {},
+}));
+
+import { projectCommand, releaseImageSourceFromOptions } from "../../src/commands/project";
+import { runCommand, stubFetch, type FetchStub } from "../helpers/harness";
+import { projectFixture, deploymentFixture } from "../../../../packages/contracts/test/fixtures";
+import { PROJECT_COMMANDS, parseChatCommand } from "@repo/commands";
+
+let fetchStub: FetchStub;
+afterEach(() => fetchStub?.restore());
+
+describe("shared project commands", () => {
+  it("registers the shared names and arguments on the real Commander tree", () => {
+    for (const definition of Object.values(PROJECT_COMMANDS)) {
+      const command = projectCommand.commands.find((c) => c.name() === definition.name)!;
+      expect(command).toBeDefined();
+      expect(command.registeredArguments.map((a) => a.name())).toEqual(
+        definition.argument ? ["id"] : [],
+      );
+      expect(
+        parseChatCommand(`project ${definition.name}${definition.argument ? " p1" : ""}`).verb,
+      ).toBe(definition.chat);
+    }
+  });
+
+  for (const verb of ["restart", "redeploy"]) {
+    it(`${verb} resolves a project, confirms, and calls the existing deployment operation`, async () => {
+      fetchStub = stubFetch((req) =>
+        req.method === "GET"
+          ? { json: { data: { ...projectFixture("p1", "shop"), activeDeploymentId: "dep1" } } }
+          : {
+              json:
+                verb === "restart"
+                  ? { data: deploymentFixture() }
+                  : { success: true, deployment_id: "dep2", project_id: "p1" },
+            },
+      );
+      const result = await runCommand(projectCommand, [verb, "p1", "--yes"]);
+      expect(result.code, result.err).toBe(0);
+      expect(fetchStub.calls.map((r) => [r.method, r.url])).toEqual([
+        ["GET", "http://api.test/api/projects/p1"],
+        ["GET", "http://api.test/api/projects/p1"],
+        ["POST", `http://api.test/api/deployments/dep1/${verb}`],
+      ]);
+    });
+  }
+  it("does not mutate without confirmation or after the active deployment changes", async () => {
+    let reads = 0;
+    fetchStub = stubFetch(() => ({
+      json: {
+        data: {
+          ...projectFixture("p1", "shop"),
+          activeDeploymentId: ++reads === 1 ? "dep1" : "dep2",
+        },
+      },
+    }));
+    const noConsent = await runCommand(projectCommand, ["restart", "p1"]);
+    expect(noConsent.code).toBe(1);
+    expect(fetchStub.calls.every((r) => r.method === "GET")).toBe(true);
+    reads = 0;
+    const changed = await runCommand(projectCommand, ["restart", "p1", "--yes"]);
+    expect(changed.code).toBe(1);
+    expect(changed.err).toContain("active deployment changed");
+    expect(fetchStub.calls.every((r) => r.method === "GET")).toBe(true);
+  });
+});
+
+describe("openship project list", () => {
+  it("paginates /projects and tabulates the rows", async () => {
+    fetchStub = stubFetch((req) => {
+      expect(req.url).toContain("/api/projects");
+      return { json: { data: [projectFixture("p1", "shop")], total: 1, page: 1, perPage: 50 } };
+    });
+    const { out, code } = await runCommand(projectCommand, ["list"]);
+    expect(code).toBe(0);
+    expect(out).toContain("p1");
+    expect(out).toContain("shop");
+  });
+});
+
+describe("openship project get", () => {
+  it("GETs /projects/:id", async () => {
+    fetchStub = stubFetch(() => ({
+      json: {
+        data: {
+          ...projectFixture("p1", "shop"),
+          deployTarget: "server",
+          serverId: "srv_remote",
+        },
+      },
+    }));
+    const { out, code } = await runCommand(projectCommand, ["get", "p1"]);
+    expect(code).toBe(0);
+    expect(fetchStub.calls[0].url).toContain("/api/projects/p1");
+    expect(out).toContain("shop");
+    expect(out).toContain("deployTarget server");
+    expect(out).toContain("serverId     srv_remote");
+  });
+});
+
+describe("openship project rename", () => {
+  it("sends only the display name through the SDK and prints the saved identity", async () => {
+    fetchStub = stubFetch((req) => {
+      expect(req.url).toBe("http://api.test/api/projects/project%2Fone");
+      expect(req.method).toBe("PATCH");
+      expect(req.body).toEqual({ name: "New Store" });
+      return {
+        json: { data: { ...projectFixture("project/one", "old-store"), name: "New Store" } },
+      };
+    });
+
+    const { out, code } = await runCommand(projectCommand, [
+      "rename",
+      "project/one",
+      "  New Store  ",
+    ]);
+
+    expect(code).toBe(0);
+    expect(fetchStub.calls).toHaveLength(1);
+    expect(out).toContain("New Store");
+    expect(out).toContain("old-store");
+  });
+
+  it("rejects a blank name before sending a write", async () => {
+    fetchStub = stubFetch(() => ({ json: {} }));
+
+    const { err, code } = await runCommand(projectCommand, ["rename", "p1", "   "]);
+
+    expect(code).toBe(1);
+    expect(fetchStub.calls).toHaveLength(0);
+    expect(err).toContain("Project name cannot be empty");
+  });
+
+  it("reports a rejected rename without printing a successful project update", async () => {
+    fetchStub = stubFetch(() => ({
+      status: 409,
+      json: { error: 'Project "Taken" already exists' },
+    }));
+
+    const { out, err, code } = await runCommand(projectCommand, ["rename", "p1", "Taken"]);
+
+    expect(code).toBe(1);
+    expect(err).toContain("already exists");
+    expect(out).toBe("");
+  });
+});
+
+describe("openship project create", () => {
+  it("routes local paths through the server-side import scanner (#751)", async () => {
+    fetchStub = stubFetch((req) => {
+      expect(req.url).toBe("http://api.test/api/projects/import");
+      expect(req.method).toBe("POST");
+      expect(req.body).toMatchObject({
+        name: "payments",
+        localPath: "/opt/apps/payments",
+        projectType: "services",
+      });
+      return { json: { data: projectFixture("p1", "payments") } };
+    });
+
+    const { code } = await runCommand(projectCommand, [
+      "create",
+      "--name",
+      "payments",
+      "--local-path",
+      "/opt/apps/payments",
+      "--type",
+      "services",
+    ]);
+
+    expect(code).toBe(0);
+    expect(fetchStub.calls).toHaveLength(1);
+  });
+
+  it("keeps Git projects on the normal create endpoint", async () => {
+    fetchStub = stubFetch((req) => {
+      expect(req.url).toBe("http://api.test/api/projects");
+      return { json: { data: projectFixture("p2", "shop") } };
+    });
+
+    const { code } = await runCommand(projectCommand, [
+      "create",
+      "--name",
+      "shop",
+      "--git-owner",
+      "acme",
+      "--git-repo",
+      "shop",
+    ]);
+
+    expect(code).toBe(0);
+  });
+
+  it("binds a new project to a registered server", async () => {
+    fetchStub = stubFetch((req) => {
+      expect(req.url).toBe("http://api.test/api/projects");
+      expect(req.body).toMatchObject({
+        name: "shop",
+        gitOwner: "acme",
+        gitRepo: "shop",
+        serverId: "srv_remote",
+      });
+      return {
+        json: {
+          data: {
+            ...projectFixture("p2", "shop"),
+            deployTarget: "server",
+            serverId: "srv_remote",
+          },
+        },
+      };
+    });
+
+    const { code } = await runCommand(projectCommand, [
+      "create",
+      "--name",
+      "shop",
+      "--git-owner",
+      "acme",
+      "--git-repo",
+      "shop",
+      "--server",
+      "srv_remote",
+    ]);
+
+    expect(code).toBe(0);
+  });
+});
+
+describe("openship project release-image", () => {
+  it("PUTs the complete GitHub release image source", async () => {
+    fetchStub = stubFetch((req) => {
+      expect(req.url).toBe("http://api.test/api/projects/project%2Fone/release-image-source");
+      expect(req.method).toBe("PUT");
+      expect(req.body).toEqual({
+        artifactKind: "image",
+        mode: "github",
+        imageTemplate: "ghcr.io/acme/api:{tag}",
+        repo: "acme/api",
+      });
+      return { json: { data: projectFixture("project/one") } };
+    });
+
+    const { err, code } = await runCommand(projectCommand, [
+      "release-image",
+      "project/one",
+      "--image-template",
+      "ghcr.io/acme/api:{tag}",
+      "--github-repo",
+      "acme/api",
+    ]);
+
+    expect(code).toBe(0);
+    expect(fetchStub.calls).toHaveLength(1);
+    expect(err).toContain("now deploys ghcr.io/acme/api:{tag}");
+  });
+
+  it("supports a pinned-only URL source", () => {
+    expect(
+      releaseImageSourceFromOptions({
+        imageTemplate: "registry.example.test/acme/api:{version}",
+        pin: "2.4.1",
+      }),
+    ).toEqual({
+      artifactKind: "image",
+      mode: "url",
+      imageTemplate: "registry.example.test/acme/api:{version}",
+      pinnedVersion: "2.4.1",
+    });
+  });
+
+  it("supports pinning a GitHub release source", () => {
+    expect(
+      releaseImageSourceFromOptions({
+        imageTemplate: "ghcr.io/acme/api:{tag}",
+        githubRepo: "acme/api",
+        pin: "v2.4.1",
+      }),
+    ).toEqual({
+      artifactKind: "image",
+      mode: "github",
+      imageTemplate: "ghcr.io/acme/api:{tag}",
+      repo: "acme/api",
+      pinnedVersion: "v2.4.1",
+    });
+  });
+
+  it("rejects ambiguous sources before making a request", async () => {
+    fetchStub = stubFetch(() => ({ json: { data: {} } }));
+    const { err, code } = await runCommand(projectCommand, [
+      "release-image",
+      "p1",
+      "--image-template",
+      "ghcr.io/acme/api:{tag}",
+      "--github-repo",
+      "acme/api",
+      "--version-url",
+      "https://versions.example.test/latest",
+    ]);
+
+    expect(code).toBe(1);
+    expect(err).toContain("--github-repo cannot be combined");
+    expect(fetchStub.calls).toHaveLength(0);
+  });
+
+  it("rejects insecure version endpoints", () => {
+    expect(() =>
+      releaseImageSourceFromOptions({
+        imageTemplate: "ghcr.io/acme/api:{tag}",
+        versionUrl: "http://versions.example.test/latest",
+      }),
+    ).toThrow("must use HTTPS");
+    expect(() =>
+      releaseImageSourceFromOptions({
+        imageTemplate: "ghcr.io/acme/api:{tag}",
+        versionUrl: "https://user:token@versions.example.test/latest",
+      }),
+    ).toThrow("embedded credentials");
+  });
+});
+
+describe("openship project env set (#844)", () => {
+  it("prints override warnings after a successful write without printing the submitted secret", async () => {
+    fetchStub = stubFetch(() => ({
+      json: {
+        upserted: 1,
+        deleted: 0,
+        warnings: ['Service "worker" overrides project environment for: TOKEN.'],
+      },
+    }));
+    const { err: output, code } = await runCommand(projectCommand, [
+      "env",
+      "set",
+      "p1",
+      "--set",
+      "TOKEN=new-secret",
+      "--secret",
+    ]);
+    expect(code).toBe(0);
+    expect(output).toContain("Updated env");
+    expect(output).toContain('Service "worker" overrides');
+    expect(output).not.toContain("new-secret");
+  });
+
+  it("accepts positional KEY=VALUE pairs the same as --set, and both together (#1023)", async () => {
+    fetchStub = stubFetch(() => ({ json: { upserted: 1, deleted: 0 } }));
+    await runCommand(projectCommand, ["env", "set", "p1", "--set", "A=1"]);
+    const positional = await runCommand(projectCommand, ["env", "set", "p1", "A=1"]);
+    expect(positional.code).toBe(0);
+    expect(fetchStub.calls[1].body).toEqual(fetchStub.calls[0].body);
+
+    const mixed = await runCommand(projectCommand, [
+      "env",
+      "set",
+      "p1",
+      "A=1",
+      "--set",
+      "B=x=y",
+      "--unset",
+      "OLD",
+    ]);
+    expect(mixed.code).toBe(0);
+    expect(fetchStub.calls[2]).toMatchObject({
+      method: "PATCH",
+      url: "http://api.test/api/projects/p1/env",
+      body: {
+        environment: "production",
+        upserts: [
+          { key: "A", value: "1", isSecret: false },
+          { key: "B", value: "x=y", isSecret: false },
+        ],
+        deletes: ["OLD"],
+      },
+    });
+  });
+
+  it("rejects a malformed positional pair before sending a write", async () => {
+    fetchStub = stubFetch(() => ({ json: {} }));
+    const { err, code } = await runCommand(projectCommand, ["env", "set", "p1", "NOVALUE"]);
+    expect(code).toBe(1);
+    expect(fetchStub.calls).toHaveLength(0);
+    expect(err).toContain("Expected KEY=VALUE");
+  });
+});
+
+describe("openship project auth errors (#1023)", () => {
+  it("points at openship login when the API answers 401", async () => {
+    fetchStub = stubFetch(() => ({ status: 401, json: { error: "Unauthorized" } }));
+    const { err, code } = await runCommand(projectCommand, ["create", "--name", "shop"]);
+    expect(code).toBe(1);
+    expect(err).toContain("Unauthorized");
+    expect(err).toContain("Run `openship login` first.");
+  });
+
+  it("leaves other API errors without the login hint", async () => {
+    fetchStub = stubFetch(() => ({ status: 403, json: { error: "Forbidden" } }));
+    const { err, code } = await runCommand(projectCommand, ["get", "p1"]);
+    expect(code).toBe(1);
+    expect(err).toContain("Forbidden");
+    expect(err).not.toContain("openship login");
+  });
+});
+
+describe("openship project runtime roles (#1282)", () => {
+  it("lists the active deployment's roles through the project API", async () => {
+    fetchStub = stubFetch(() => ({
+      json: {
+        data: {
+          deploymentId: "dep_1",
+          roles: [{ name: "queue", kind: "worker", replicas: 2, containers: [] }],
+          error: null,
+        },
+      },
+    }));
+    const { out, code } = await runCommand(projectCommand, ["roles", "p1"]);
+    expect(code).toBe(0);
+    expect(fetchStub.calls[0].url).toBe("http://api.test/api/projects/p1/roles");
+    expect(out).toContain("queue");
+  });
+
+  it.each([false, true])(
+    "reads only the selected release and replica (follow=%s)",
+    async (follow) => {
+      fetchStub = stubFetch(() =>
+        follow
+          ? new Response(
+              'event: log\ndata: {"message":"queue replica 2","level":"info","timestamp":"2026-10-16T12:00:00Z"}\n\n',
+              { headers: { "Content-Type": "text/event-stream" } },
+            )
+          : {
+              json: {
+                data: [
+                  { message: "queue replica 2", level: "info", timestamp: "2026-10-16T12:00:00Z" },
+                ],
+              },
+            },
+      );
+      const { out, code } = await runCommand(projectCommand, [
+        "logs",
+        "p1",
+        "--role",
+        "queue",
+        "--replica",
+        "2",
+        "--deployment-id",
+        "dep_1",
+        "--tail",
+        "40",
+        ...(follow ? ["--follow"] : []),
+      ]);
+      expect(code).toBe(0);
+      expect(fetchStub.calls).toHaveLength(1);
+      const url = new URL(fetchStub.calls[0].url);
+      expect(url.pathname).toBe(follow ? "/api/projects/p1/logs/stream" : "/api/projects/p1/logs");
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        role: "queue",
+        replica: "2",
+        deploymentId: "dep_1",
+        tail: "40",
+      });
+      expect(out).toContain("queue replica 2");
+    },
+  );
+});

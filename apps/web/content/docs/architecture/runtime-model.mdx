@@ -1,0 +1,98 @@
+---
+title: Runtime model
+description: Choose the control plane, workload destination and build location independently. Run web apps, Compose, workers and static sites on your servers, managed Cloud or supported clusters.
+---
+
+OpenShip separates **where you manage deployments** from **where applications run**.
+Desktop is an option, not a requirement.
+
+## Choose your control plane
+
+| Mode                          | What it provides                                                                                                                              |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Self-hosted web dashboard** | An always-on controller on your infrastructure, with team access, webhooks and automation. It can deploy locally or manage connected servers. |
+| **OpenShip Cloud**            | A managed platform with managed compute. Projects share the resources of their Cloud Space.                                                   |
+| **Optional Desktop**          | A controller on macOS, Windows or Linux. Manage infrastructure without exposing a public dashboard.                                           |
+
+The dashboard, CLI, API, TypeScript SDK and MCP use the platform's resource permissions.
+Already deployed workloads run independently of the controller. Webhooks, controller-managed schedules
+and management operations need the relevant controller to be available.
+
+## Workload destinations
+
+| Destination          | Where workloads run                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| **Local**            | On the controller's machine, using a supported local runtime.                                                     |
+| **Connected server** | On a registered server reached over SSH. The target does not need a full OpenShip dashboard and API installation. |
+| **Managed Cloud**    | On OpenShip-operated infrastructure.                                                                              |
+| **Cluster**          | On a prepared k3s cluster or through a connected Docker Swarm manager, from a self-hosted or desktop controller.  |
+
+Connected servers still need the components their workloads use, such as Docker and an edge proxy.
+Enabling runners, cluster runtimes, host integrations or AI agents can install additional components.
+SSH-based management does not mean an empty target machine.
+
+## Container, host process, static site or worker
+
+- **Docker** packages application dependencies in a container and provides runtime isolation. Keep the
+  host and container runtime maintained, and restrict privileges and mounts.
+- **Bare runtime** runs a supported application as a host process. It shares the host environment;
+  supervision and available operations depend on the operating system and runtime.
+- **Static sites** publish built files. On supported self-hosted paths, OpenShip extracts the build into
+  a retained release served by the edge, without keeping an application container running.
+- **Workers** run without requiring a public HTTP port. Their logs and resource settings remain part
+  of the deployment workflow.
+- **Compose** describes multiple services and their relationships. Supported Compose and application
+  workloads can also deploy through a connected Swarm manager.
+
+Kubernetes has its own application, database and shared-storage workflows. See
+[clusters and scaling](/docs/guides/mcp-clusters-and-scaling) for supported operations and prerequisites.
+Hosted Cloud does not expose customer-managed cluster administration.
+
+## Build first, then hand off
+
+Source upload, Git clone location and build location are separate decisions. Uploading a local folder
+does not by itself mean the build runs on your computer.
+
+Supported server deployment paths let you build on the **controller** or the **destination**. The
+controller can be an always-on server or the optional desktop app. A controller-side build can keep
+compilation and dependency installation off a small production server. Destination builds are useful
+when that machine has the required resources or environment. Cloud and cluster paths have their own
+supported build and image-transfer options.
+
+The source pipeline prepares the environment, obtains the source, installs dependencies and builds
+the release. An image deployment can reuse an existing image instead. OpenShip retains warm project
+caches for repeated builds and uses storage-aware cleanup to reclaim idle cache space while protecting
+active deployments and retained rollback artifacts.
+
+## Routing and certificates
+
+OpenResty handles HTTP routing on self-hosted destinations. Visitor requests go through the edge to
+the application or static files; they do not need an OpenShip API or database round trip. TLS and
+domain setup are managed through the platform. Managed Cloud provides its supported edge and HTTPS
+services.
+
+Traffic analytics aggregate at the edge using bounded in-memory counters. Detailed recent-request
+records are bounded, and optional path tracking has its own limits. This keeps analytics collection
+out of application code and avoids a database write for every visit. See [the edge](/docs/guides/the-edge).
+
+## Zero-downtime and auto-revert
+
+Replacement behavior depends on the runtime, workload and available capacity. A supported overlapping
+deployment starts the new release, checks it, then switches traffic before retiring the old release.
+This needs enough resources for both versions and a workload that can safely run concurrently.
+
+A host process that holds a fixed port, a stateful service, or the connected-Swarm replacement path
+may need to stop before its replacement starts. Plan for an interruption on those paths. Do not
+assume a universal zero-downtime guarantee from the choice of Docker or Cloud alone.
+
+Application rollback restores a retained release and its runtime configuration. It does not undo
+database writes or schema changes. Data recovery uses a verified backup and a separate restore plan.
+
+## Related guides
+
+- [Installation](/docs/getting-started/installation)
+- [Deploy to your own server](/docs/guides/custom-servers)
+- [Compose projects](/docs/guides/compose-multi-service)
+- [Clusters and scaling](/docs/guides/mcp-clusters-and-scaling)
+- [Backups and restore](/docs/guides/backups-restore)
+- [Custom domains](/docs/guides/custom-domains)

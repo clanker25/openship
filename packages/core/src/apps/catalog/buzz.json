@@ -1,0 +1,33 @@
+{
+  "available": false,
+  "id": "buzz",
+  "name": "Buzz",
+  "description": "Self-hostable workspace where humans and AI agents collaborate — chat, code, reviews, and workflows in one audit log.",
+  "kind": "template",
+  "logo": "buzz",
+  "category": "other",
+  "tags": [
+    "collaboration",
+    "ai",
+    "agents",
+    "chat",
+    "workflows",
+    "nostr"
+  ],
+  "marketplace": {
+    "features": [
+      {
+        "title": "Collaboration",
+        "description": "A workspace for people and AI agents."
+      },
+      {
+        "title": "Code and reviews",
+        "description": "Bring development activity into the conversation."
+      },
+      {
+        "title": "Workflow history",
+        "description": "Keep work visible in an audit log."
+      }
+    ]
+  }
+}

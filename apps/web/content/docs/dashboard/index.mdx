@@ -1,0 +1,74 @@
+---
+title: Dashboard overview
+description: Find projects, services, infrastructure, and team settings in the OpenShip dashboard.
+---
+
+Use the sidebar to move between areas. Available actions depend on the installation mode, enabled services,
+and your permissions. The account menu selects the current organization.
+
+## The sidebar
+
+| Area | Use it for | Guide |
+| --- | --- | --- |
+| Home | Project overview, recent work, and shortcuts. | [Home page](#the-home-page) |
+| Projects | Source, releases, services, domains, and logs. | [Projects](/docs/dashboard/projects) |
+| Apps | Installed catalog applications and available templates. | [Library](/docs/dashboard/library) |
+| Monitoring | Health, issues, and items requiring attention. | [Logs and monitoring](/docs/guides/logs-monitoring) |
+| Agents | AI assistance and supported automation. | [Agents](/docs/dashboard/assistant) |
+| Servers | Connected machines and managed infrastructure. | [Servers](/docs/dashboard/servers) |
+| Emails | Self-hosted mail administration or Cloud webmail connections. | [Email](/docs/dashboard/emails) |
+| Jobs & Actions | Scheduled commands and execution workflows. | [Jobs](/docs/guides/jobs) · [Actions](/docs/guides/actions) |
+| Backups | Backup destinations and connection checks. | [Backups](/docs/dashboard/backups) |
+| Settings | Account, organization, integrations, and credentials. | [Settings](/docs/dashboard/settings) |
+| Plans & billing | Cloud spaces, server management, and payments where available. | [Billing](/docs/dashboard/billing) |
+| Audit | Organization activity and administrative changes. | [Audit API](/docs/api/audit) |
+
+### Navigation links
+
+Self-hosted and Cloud navigation expose different administrative controls. Cloud manages its control plane;
+self-hosted administrators also maintain instance settings and host components. Mail mode has its own
+navigation for domains, mailboxes, sending, and health.
+
+### New Project
+
+Select **New Project** to open the Library. Start from GitHub, another repository URL, a local folder,
+or a template. The [deploy wizard](/docs/dashboard/deploy-wizard) reviews source, configuration, and destination.
+
+### Workspace switcher
+
+Use the account menu to select an organization. Confirm the active workspace before deploying or changing
+credentials. Invitations and roles are managed under **Settings → Team**.
+See [teams and members](/docs/guides/teams-members).
+
+## The home page
+
+### Your Projects
+
+Open a project from the overview or select **View all**. A new workspace offers shortcuts to create a
+project or import from GitHub.
+
+### Quick links
+
+Common shortcuts open the Library, MCP settings, account settings, and documentation.
+Use **⌘K / Ctrl+K** where available to navigate directly.
+
+### Activity and recent
+
+Home summarizes recent work and available resources. For diagnostics, open **Monitoring** or the project's
+logs and deployment history instead of relying on an overview status alone.
+
+## A map of the dashboard
+
+Most application work starts inside a project:
+
+| Task | Location |
+| --- | --- |
+| Change a running service's variables | **Services → service → Environment**; save, then apply or redeploy. |
+| Manage shared build inputs | Project settings and the shared project environment. |
+| Inspect an unsuccessful release | Deployment history and build log. |
+| Inspect the running application | Service state and runtime logs. |
+| Attach a hostname | Project domains and routing. |
+| Protect persistent data | Project backup controls and workspace backup destinations. |
+
+A single application and a Compose project use the same service controls.
+See [project details](/docs/dashboard/projects) for the complete layout.

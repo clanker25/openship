@@ -1,0 +1,294 @@
+import { describe, expect, test } from "vitest";
+import type { CommandExecutor } from "@repo/adapters";
+import { establishDirectLink, parseRsyncProgress, rsyncCommand, runRsync, sq, statPath } from "@repo/platform/engine/modules/migration/direct-transfer";
+
+describe("statPath (file vs dir vs missing)", () => {
+  const oneShot = (reply: string): CommandExecutor =>
+    ({ exec: async () => reply }) as unknown as CommandExecutor;
+  test("classifies dir / file / missing from the probe output", async () => {
+    expect(await statPath(oneShot("dir\n"), "/x")).toBe("dir");
+    expect(await statPath(oneShot("file"), "/x")).toBe("file");
+    expect(await statPath(oneShot("missing"), "/x")).toBe("missing");
+  });
+  test("preserves connection failures instead of misreporting a missing path", async () => {
+    const throwing = {
+      exec: async () => {
+        throw new Error("ssh down");
+      },
+    } as unknown as CommandExecutor;
+    await expect(statPath(throwing, "/x")).rejects.toThrow("ssh down");
+  });
+});
+
+describe("rsyncCommand file-vs-dir slash (the postgresql.conf bug)", () => {
+  const peer = { host: "10.0.0.2", port: 22, user: "root" };
+  test("dir=false (a file) → NO trailing slash → rsync copies the file, not change_dir", () => {
+    const cmd = rsyncCommand("ssh -i k", peer, "/a/postgresql.conf", "/b/postgresql.conf", true, false, false);
+    expect(cmd).toContain("'/a/postgresql.conf'");
+    expect(cmd).not.toContain("'/a/postgresql.conf'/");
+    expect(cmd).not.toContain("postgresql.conf'/");
+    expect(cmd).not.toContain("--delete");
+  });
+  test("dir=true (a directory) → trailing slash → sync CONTENTS", () => {
+    const cmd = rsyncCommand("ssh -i k", peer, "/a", "/b", true, false, true);
+    expect(cmd).toContain("'/a'/");
+    expect(cmd).toContain("--delete-delay");
+  });
+});
+
+describe("rsyncCommand resume flags", () => {
+  const peer = { host: "10.0.0.2", port: 22, user: "root" };
+  test("includes --partial and --partial-dir so a re-invoke resumes", () => {
+    const cmd = rsyncCommand("ssh -i k", peer, "/a", "/b", true, false);
+    expect(cmd).toContain("--partial");
+    expect(cmd).toContain("--partial-dir=.openship-partial");
+    expect(cmd).toContain("--no-human-readable");
+  });
+});
+
+describe("runRsync retry / bail", () => {
+  const exec = (results: Array<{ code: number; output: string }>): CommandExecutor & { calls: number } => {
+    let i = 0;
+    const o = {
+      calls: 0,
+      async streamExec() {
+        o.calls++;
+        return results[Math.min(i++, results.length - 1)];
+      },
+    };
+    return o as unknown as CommandExecutor & { calls: number };
+  };
+
+  test("resolves on a first-attempt success (one call, no retry)", async () => {
+    const e = exec([{ code: 0, output: "" }]);
+    await expect(runRsync(e, "rsync ...")).resolves.toBeUndefined();
+    expect(e.calls).toBe(1);
+  });
+
+  test("bails immediately on permission-denied (not retried)", async () => {
+    const e = exec([{ code: 23, output: "rsync: mkstemp failed: Permission denied (13)" }]);
+    await expect(runRsync(e, "rsync ...")).rejects.toThrow(/cannot read\/write the Docker volume path/i);
+    expect(e.calls).toBe(1);
+  });
+});
+
+describe("runRsync streamed progress", () => {
+  test.each([
+    {
+      name: "coalesced carriage-return updates",
+      chunks: ["\r          0   0%  0.00kB/s\r        512 100%  1.00kB/s\r"],
+      expected: [0, 512],
+    },
+    {
+      name: "coalesced byte-suffixed updates from newer rsync",
+      chunks: ["\r              0B   0%       0B/s\r             47B 100%   47000B/s\n"],
+      expected: [0, 47],
+    },
+    {
+      name: "fragmented counters and an unterminated final update",
+      chunks: ["      1,", "234  50%  1.00kB/s\r      2,", "468 100%  1.00kB/s"],
+      expected: [1234, 2468],
+    },
+  ])("reports $name without mixing stderr into stdout", async ({ chunks, expected }) => {
+    const progress: number[] = [];
+    const streamExec: CommandExecutor["streamExec"] = async (_command, onLog) => {
+      for (const message of chunks) {
+        onLog({ timestamp: new Date().toISOString(), level: "info", message });
+        onLog({ timestamp: new Date().toISOString(), level: "warn", message: "rsync diagnostic\n" });
+      }
+      return { code: 0, output: chunks.join("") };
+    };
+    await runRsync({ streamExec } as CommandExecutor, "rsync ...", bytes => progress.push(bytes));
+    expect(progress).toEqual(expected);
+  });
+});
+
+// ── Pure helpers ──────────────────────────────────────────────────────────────
+
+describe("parseRsyncProgress", () => {
+  test("extracts cumulative bytes from an --info=progress2 line", () => {
+    expect(parseRsyncProgress("      1,234,567  12%  1.23MB/s    0:00:05")).toBe(1234567);
+    expect(parseRsyncProgress("  512  100%  0.50MB/s    0:00:00 (xfr#1, to-chk=0/1)")).toBe(512);
+    expect(parseRsyncProgress("  1,234,567B  100%  1234567B/s  0:00:00")).toBe(1234567);
+  });
+  test("returns null for non-progress lines", () => {
+    expect(parseRsyncProgress("sending incremental file list")).toBeNull();
+    expect(parseRsyncProgress("./")).toBeNull();
+    expect(parseRsyncProgress("")).toBeNull();
+    expect(parseRsyncProgress("  1.23KB 100%  1234B/s  0:00:00")).toBeNull();
+    expect(parseRsyncProgress("  47KB 100%  47000B/s  0:00:00")).toBeNull();
+  });
+});
+
+describe("sq", () => {
+  test("single-quotes and escapes embedded quotes", () => {
+    expect(sq("a b")).toBe("'a b'");
+    expect(sq("it's")).toBe("'it'\\''s'");
+  });
+});
+
+describe("rsyncCommand", () => {
+  const peer = { host: "10.0.0.2", port: 22, user: "root" };
+  const ssh = "ssh -i /tmp/k/id -p 22";
+
+  test("adds -z only when compress is on", () => {
+    expect(rsyncCommand(ssh, peer, "/src", "/dst", true, true)).toContain(" -z ");
+    expect(rsyncCommand(ssh, peer, "/src", "/dst", true, false)).not.toContain(" -z ");
+  });
+
+  test("push puts the peer on the DEST side; pull on the SOURCE side", () => {
+    const push = rsyncCommand(ssh, peer, "/local", "/remote", true, false);
+    expect(push).toMatch(/'\/local'\/\s+'root@10\.0\.0\.2:\/remote'\//);
+    const pull = rsyncCommand(ssh, peer, "/local", "/remote", false, false);
+    expect(pull).toMatch(/'root@10\.0\.0\.2:\/remote'\/\s+'\/local'\//);
+  });
+});
+
+// ── establishDirectLink direction selection ─────────────────────────────────────
+
+interface Handler {
+  match: RegExp;
+  reply: string;
+}
+function fakeExec(handlers: Handler[]): CommandExecutor & { calls: string[] } {
+  const calls: string[] = [];
+  const exec = async (command: string) => {
+    calls.push(command);
+    if (command.startsWith("command -v ")) return "ok";
+    const pubkey = command.match(/cat '.*openship-migration-([a-z0-9]+)-(push|pull)\/id\.pub'/);
+    if (pubkey) return `ssh-ed25519 AAAAKEY openship-migration-${pubkey[1]}-${pubkey[2]}`;
+    const h = handlers.find((x) => x.match.test(command));
+    return h ? h.reply : "";
+  };
+  return {
+    calls,
+    exec,
+    // streamExec unused by establishDirectLink; stub for the interface.
+    streamExec: async () => ({ code: 0, output: "" }),
+  } as unknown as CommandExecutor & { calls: string[] };
+}
+
+const PUBKEY = "ssh-ed25519 AAAAKEY";
+const conn = (host: string) => ({ host, port: 22, user: "root" });
+
+/** Handlers that make a bootstrap succeed on whichever exec is the initiator. */
+const bootstrapOk: Handler[] = [
+  { match: /ssh-keygen/, reply: "" },
+  { match: /cat .*id\.pub/, reply: PUBKEY },
+  { match: /ssh-keyscan/, reply: "420" }, // wc -c > 0
+];
+
+describe("establishDirectLink", () => {
+  test.each(["push", "pull"] as const)(
+    "%s returns the loaded ID for digest images without a docker tag",
+    async (direction) => {
+      const sourceExec = fakeExec([
+        ...bootstrapOk,
+        {
+          match: /OPENSHIP_LINK_OK/,
+          reply: direction === "push" ? "OPENSHIP_LINK_OK" : "",
+        },
+      ]);
+      const targetExec = fakeExec([
+        ...bootstrapOk,
+        { match: /OPENSHIP_LINK_OK/, reply: "OPENSHIP_LINK_OK" },
+      ]);
+      const loaded = `sha256:${"b".repeat(64)}`;
+      const initiator = direction === "push" ? sourceExec : targetExec;
+      initiator.streamExec = async () => ({
+        code: 0,
+        output: `Loaded image ID: ${loaded}\n`,
+      });
+      const link = await establishDirectLink({
+        sourceExec,
+        targetExec,
+        sourceConn: conn("10.0.0.1"),
+        targetConn: conn("10.0.0.2"),
+        runId: "digest",
+        log: () => {},
+      });
+      try {
+        expect(link?.direction).toBe(direction);
+        expect(
+          await link!.transferImage({
+            id: `sha256:${"c".repeat(64)}`,
+            tag: `openship/app@sha256:${"a".repeat(64)}`,
+          }),
+        ).toBe(loaded);
+        expect(
+          [...sourceExec.calls, ...targetExec.calls].some((command) =>
+            command.includes("docker tag"),
+          ),
+        ).toBe(false);
+      } finally {
+        await link?.cleanup();
+      }
+    },
+  );
+
+  test("push: source reaches target → direction 'push'", async () => {
+    const sourceExec = fakeExec([
+      ...bootstrapOk,
+      { match: /OPENSHIP_LINK_OK/, reply: "OPENSHIP_LINK_OK\n" },
+    ]);
+    const targetExec = fakeExec([]); // just receives the authorized_keys install
+    const link = await establishDirectLink({
+      sourceExec,
+      targetExec,
+      sourceConn: conn("10.0.0.1"),
+      targetConn: conn("10.0.0.2"),
+      runId: "run1",
+      log: () => {},
+    });
+    expect(link?.direction).toBe("push");
+    // Cleanup strips the run marker on the peer (target) and removes the temp key.
+    await link!.cleanup();
+    expect(targetExec.calls.some((c) => /awk -v marker=.*openship-migration-run1-push/.test(c))).toBe(true);
+    expect(sourceExec.calls.some((c) => /rm -rf .*openship-migration-run1-push/.test(c))).toBe(true);
+  });
+
+  test("push blocked, pull works → direction 'pull'", async () => {
+    // Source probe fails; target (pull initiator) probe succeeds.
+    const sourceExec = fakeExec([
+      ...bootstrapOk,
+      { match: /OPENSHIP_LINK_OK/, reply: "" }, // push probe: unreachable
+    ]);
+    const targetExec = fakeExec([
+      ...bootstrapOk,
+      { match: /OPENSHIP_LINK_OK/, reply: "OPENSHIP_LINK_OK" },
+    ]);
+    const link = await establishDirectLink({
+      sourceExec,
+      targetExec,
+      sourceConn: conn("10.0.0.1"),
+      targetConn: conn("10.0.0.2"),
+      runId: "run2",
+      log: () => {},
+    });
+    expect(link?.direction).toBe("pull");
+  });
+
+  test("managed target without SSH pulls from the authenticated external source", async () => {
+    const sourceExec = fakeExec([]);
+    const targetExec = fakeExec([...bootstrapOk, { match: /OPENSHIP_LINK_OK/, reply: "OPENSHIP_LINK_OK" }]);
+    const link = await establishDirectLink({ sourceExec, targetExec, sourceConn: conn("8.8.4.4"), targetConn: null,
+      runId: "run3", log: () => {} });
+    expect(link?.direction).toBe("pull");
+    expect(sourceExec.calls.some(command => command.includes("authorized_keys"))).toBe(true);
+    await link?.cleanup();
+  });
+
+  test("neither direction connects → null", async () => {
+    const unreachable = () =>
+      fakeExec([...bootstrapOk, { match: /OPENSHIP_LINK_OK/, reply: "" }]);
+    const link = await establishDirectLink({
+      sourceExec: unreachable(),
+      targetExec: unreachable(),
+      sourceConn: conn("10.0.0.1"),
+      targetConn: conn("10.0.0.2"),
+      runId: "run3",
+      log: () => {},
+    });
+    expect(link).toBeNull();
+  });
+});

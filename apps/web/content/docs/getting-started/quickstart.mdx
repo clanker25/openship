@@ -1,0 +1,105 @@
+---
+title: Quickstart
+description: Connect your code, choose a destination, and verify your first deployment.
+---
+
+**You need:** an OpenShip dashboard, a Git repository or local app folder, and a deployment destination
+with enough capacity for your application.
+
+Already have a dashboard? Start at [Deploy one thing](#deploy-one-thing).
+
+<Steps>
+<Step>
+
+<span id="install-the-openship-cli" />
+
+## Choose your setup
+
+Choose a control plane. This choice is separate from where your applications run.
+
+- **Managed Cloud:** [open the dashboard](https://app.openship.io). Choose Cloud capacity or connect a server with a management plan.
+- **Self-hosted web:** install the CLI below and run setup on the machine that will host OpenShip.
+- **Optional Desktop:** [download the app](/download) and complete setup. No public control-plane endpoint is required.
+
+For self-hosted web:
+
+<InstallTabs />
+
+Package managers are also supported with Node.js 22 or newer. See [installation options](/docs/getting-started/installation).
+
+</Step>
+<Step>
+
+## Set up Openship
+
+On a self-hosted installation, run the guided setup:
+
+```bash
+openship
+```
+
+Create the administrator account and choose private access or a public hostname. The installer prints
+the dashboard URL and starts the supported background service. Linux installations with Docker use
+Compose by default; a bare installation is also supported.
+
+Cloud and Desktop users complete setup in their dashboard instead.
+
+</Step>
+<Step>
+
+## Open the dashboard
+
+For a CLI-managed instance:
+
+```bash
+openship open
+```
+
+Sign in using the account created during setup. If the instance is on a remote server, use its configured
+public URL or a secure tunnel; `localhost` refers to the machine where the browser runs.
+
+</Step>
+<Step>
+
+## Deploy one thing
+
+1. Select **New Project** and choose a repository, local folder, or template. Connect GitHub if required.
+2. Choose the destination: a Cloud space, a connected server, or an available local runtime.
+3. Review the detected framework, working directory, build/start commands, and application port.
+4. Add required environment variables. For a multi-service application, review each service and its storage.
+5. Select **Deploy** and follow the build log.
+
+When the release is ready, open the reported URL. Confirm the page or API works, then check runtime logs
+for startup errors. Public access requires a reachable destination and a configured route/domain.
+
+</Step>
+</Steps>
+
+## CLI
+
+Link a local folder to a project, then deploy and follow progress:
+
+```bash
+cd your-project
+openship init
+openship deploy --watch
+```
+
+`openship init` records the selected project in `.openship/project.json`.
+See [CLI deployment](/docs/cli/deploy) for authentication, sources, and CI examples.
+
+## Troubleshooting
+
+| Symptom | Next check |
+| --- | --- |
+| Dashboard or API is unreachable | Run `openship status` and `openship doctor`; verify the configured instance URL. |
+| Repository is missing | Check [GitHub repository access](/docs/troubleshooting/github). |
+| Build or startup fails | Read the failing command and surrounding log lines. Check commands, secrets, and the listening port. |
+| Deployment is ready but the URL fails | Check the route, DNS, TLS, and [domain troubleshooting](/docs/troubleshooting/domains-ssl). |
+
+## Related guides
+
+<Cards>
+  <Card title="First deployment checklist" href="/docs/getting-started/first-deployment" description="Review configuration, verify the release, and prepare for your next deployment." />
+  <Card title="Production readiness" href="/docs/guides/production-readiness" description="Access, backups, capacity, monitoring, and recovery for a production service." />
+</Cards>

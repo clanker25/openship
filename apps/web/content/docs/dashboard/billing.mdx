@@ -1,0 +1,125 @@
+---
+title: Billing
+description: Manage each Openship Cloud server's coverage, usage, upgrades and payments, including from a linked self-hosted installation.
+---
+
+<Callout title="Openship Cloud resources">
+Choose **Openship Cloud** for managed compute, or **Your infrastructure** for
+Openship Manage ($5/month including two connected servers, then $3/month each).
+Running your own Openship control plane remains free. Linked self-hosted
+installations can also manage Cloud billing.
+</Callout>
+
+## Your plans
+
+**Plans & billing** opens an overview with one card for each purchased Cloud space,
+a card for a purchased Openship Manage subscription, and **Add plan**. Cloud space
+cards show allocated capacity and project counts. Manage shows the saved server
+allowance and support level. Included Basic management is a Cloud benefit rather
+than another purchased plan.
+
+Open a compute card for its named plan page, with resource usage, assigned projects,
+Overview, Usage, Payments & invoices and Activity tabs. **Change plan** opens the
+available upgrades in a dialog. The plan’s **Payments & invoices** tab contains its
+payment recovery and billing portal for payment details, invoices and cancellation. A Manage card opens its covered servers and saved subscription.
+**Add plan** starts a separate purchase. Explicit workspace links continue to handle
+upgrades and unfinished payments for that space.
+
+Unfinished checkouts appear as pending plan cards, with their saved offer, price and
+a payment warning. Opening one goes straight to that plan’s **Payments & invoices** tab.
+If there are no purchased or pending plans, the overview redirects to Plans after all
+account and payment reads succeed. Choose a monthly or yearly preset, Custom resources or Openship Manage.
+Failed reads remain retryable instead of being treated as an empty account.
+
+## Server management
+
+The Manage plan page lists connected external servers; Cloud allocations and local
+hosts do not consume its server allowance. **Add server** opens the normal connection
+form while a slot is available. At the limit, choose the number of additional slots,
+review the quoted monthly total and amount due, then continue to checkout. The support
+plan stays the same. Allowance changes activate only after billing confirms them.
+
+**Change plan** compares the current and proposed support plan and allowance. Review
+the provider's quote before applying an upgrade or downgrade. Existing paid access
+remains until a scheduled reduction takes effect. Payment recovery and cancellation
+use the same saved subscription.
+
+## Coverage and usage
+
+Monthly subscriptions include the purchased CPU, RAM and disk for the full paid
+month, without another compute-credit allowance. Overview puts **Monthly coverage**
+and the paid-through date after plan capacity and usage. Usage shows recorded CPU time and resource measurements.
+The server page separates actual usage from provisioned capacity; unavailable
+measurements stay unknown.
+
+Monthly servers include managed internet transfer. Billing shows its available
+allowance, or **Unlimited** when confirmed by the provider, and current-period
+usage. Public app routes and backups are separate. Transfer exhaustion does not
+end paid compute coverage. Existing metered subscriptions keep their saved terms
+and credit displays; updating Openship does not convert them.
+
+Each compute plan has these tabs:
+
+| Tab | What it does |
+| --- | --- |
+| **Overview** | Measured resources, assigned projects, plan counters and paid coverage. |
+| **Usage** | Recorded resource usage over the selected period, scoped to this plan. |
+| **Payments & invoices** | This plan’s unfinished payments, renewal controls and billing portal. |
+| **Activity** | Setup progress, logs and recovery for the allocation. |
+
+Saved metered subscriptions retain eligible Top-ups. Monthly plans have no credit
+top-up purchasing. Existing billing bookmarks redirect into the selected plan; an
+unscoped history link returns to the plan cards.
+
+## Finish or cancel a checkout
+
+Open the pending plan card in **Plans & billing**. Its **Payments & invoices** tab
+lists only that plan’s unfinished checkouts. A payment-attention notice remains
+visible until payment or cancellation is confirmed. Connected desktop and
+self-hosted installations use the same recovery flow and existing execution links.
+
+**Resume payment** opens the original checkout with its saved plan and price.
+**Cancel payment** closes a supported checkout after the provider confirms it
+cannot be paid. If confirmation is still pending, retry cancellation or refresh;
+do not start a competing purchase. Payments that have already been submitted link
+to their verification status instead.
+
+After confirmed cancellation or expiry, choose another plan or delete the unused
+server using the existing delete confirmation. If cancellation is unavailable,
+resume the payment, wait for expiry, or contact support.
+
+## Change or cancel a plan
+
+**Review change** shows the provider's amount due now, effective date and projects
+that may restart. Upgrades apply after payment. Resource reductions and changes
+of billing mode take effect at renewal. Review the actual quote before confirming.
+If payment needs authentication, use **Complete payment**. Pending operations stay
+visible and can be canceled when allowed; retries reuse the same operation.
+
+After payment, the existing server resize worker applies the approved resources.
+If projects changed after review, **Apply plan capacity** asks for an updated
+restart confirmation. A resize can be retried without buying the plan again.
+Disks can grow but cannot shrink in place; use Custom to retain storage while
+reducing other resources, or migrate to another server.
+
+Canceling renewal preserves the paid period. When coverage ends, compute stops
+and retained disks follow the saved storage terms. Retention does not mean free
+storage: billing continues until deletion, with no automatic deletion at the
+minimum retention review date. Overview shows these terms and any storage amount
+due. Invoices and cards stay scoped to this server, not other customers or the
+provider account.
+
+## Make room for another deployment
+
+Apps and source builds share the managed server. A new project does not reserve
+another VM or disk, and container sizes are limits within the existing host.
+Image-only installs do not allocate a source builder. Inspect server usage,
+stop an idle service if memory is tight, or review a larger plan. See
+[Servers](/docs/dashboard/servers) for progress, logs and recovery.
+
+## Credit warnings
+
+Only saved metered subscriptions show low-credit notices. Monthly coverage does
+not depend on an old credit balance. See
+[credit warnings and recovery](/docs/guides/billing#credit-warnings-and-recovery)
+for the metered flow, and the [billing API](/docs/api/billing) for the endpoints.

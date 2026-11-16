@@ -1,0 +1,29 @@
+/** @deprecated Use the Referral contracts from ./referrals. Existing wire shapes are unchanged. */
+export {
+  ReferralCodeSchema as AffiliateCodeSchema,
+  ReferralListInput as AffiliateListInput,
+  ReferralPayoutDestinationSchema as AffiliatePayoutDestinationSchema,
+  ReferralPayoutDestinationSummarySchema as AffiliatePayoutDestinationSummarySchema,
+  ReferralOverviewSchema as AffiliateOverviewSchema,
+  ReferralPlanSelectionSchema as AffiliatePlanSelectionSchema,
+  ReferralOfferSchema as AffiliateOfferSchema,
+  ReferralCustomerSchema as AffiliateReferralSchema,
+  ReferralPaymentSchema as AffiliatePaymentSchema,
+  ReferralPayoutSchema as AffiliatePayoutSchema,
+  CreateReferralOfferSchema as CreateAffiliateOfferSchema,
+  ReferralOperationSchemas as AffiliateOperationSchemas,
+  ReferralRoutes as AffiliateRoutes,
+  ReferralPublicOfferSchema as AffiliatePublicOfferSchema,
+} from "./referrals";
+export type {
+  ReferralPayoutDestination as AffiliatePayoutDestination,
+  ReferralPayoutDestinationSummary as AffiliatePayoutDestinationSummary,
+  ReferralPlanSelection as AffiliatePlanSelection,
+  ReferralOperations as AffiliateOperations,
+  ReferralOverview as AffiliateOverview,
+  ReferralOffer as AffiliateOffer,
+  ReferralCustomer as AffiliateReferral,
+  ReferralPayment as AffiliatePayment,
+  ReferralPayout as AffiliatePayout,
+  ReferralPublicOffer as AffiliatePublicOffer,
+} from "./referrals";

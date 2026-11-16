@@ -1,0 +1,95 @@
+---
+title: Core concepts
+description: Understand how control planes, projects, services, and deployment destinations fit together.
+---
+
+**The control plane manages deployments. The runtime runs your applications.** They can live on the same
+machine or on separate infrastructure. A build can also run elsewhere when the deployment path supports it.
+
+## Organization (workspace)
+
+An organization groups projects and members. Permissions determine which resources a member can read or
+change. Switch organizations in the account menu before managing a different team's resources.
+
+See [teams and members](/docs/guides/teams-members) and [permissions](/docs/security/permissions).
+
+## Project
+
+A project stores source configuration, build settings, environment values, routing, and deployment history.
+It can contain one application or several services, such as a web app, worker, and database.
+
+A single application uses the same **Services** flow as a multi-service project. Adding a service extends
+the project; it does not create another copy of the application.
+
+## Environment
+
+An environment separates a production, preview, or development workload. Related environment projects have
+their own identifiers and deployment state. Check the environment before changing variables or deploying.
+
+Use [preview environments](/docs/guides/preview-environments) to test branches independently. Configure
+separate databases or storage where isolation is required; a separate URL alone does not isolate shared data.
+
+## Deployment
+
+A deployment builds or selects an artifact and releases it to a destination. It records progress, logs,
+source information, and outcome. The active release serves the project while previous releases remain in
+history according to the runtime's retention behavior.
+
+A [rollback](/docs/guides/rollback-redeploy) changes the application release. It does **not** undo database
+migrations or restore application data.
+
+## Service
+
+A service is a workload inside a project: an application, worker, database, cache, or supporting process.
+Services have their own environment overrides, ports, storage, and runtime controls.
+
+| Workload | Typical configuration |
+| --- | --- |
+| Web application or API | A listening port and a public route. |
+| Background worker | A start command; no public route required. |
+| Database or cache | Private networking and persistent storage when needed. |
+| Static site | A build output directory served by the edge; no application process required. |
+
+Services can come from Compose, a repository, a catalog app, or an added image.
+See [Compose and multiple services](/docs/guides/compose-multi-service).
+
+## Domain
+
+A domain routes a hostname such as `app.example.com` to a service. DNS must point to the appropriate ingress,
+and HTTPS requires a valid certificate. Free subdomains are available through supported Cloud-connected flows.
+
+A domain can also have [static response routes](/docs/guides/static-response-routes).
+See [custom domains](/docs/guides/custom-domains) for verification and TLS.
+
+## Server
+
+A connected server is a machine OpenShip reaches over SSH. You provide the connection and credentials;
+OpenShip prepares the components needed by the selected workloads. The server does not need a full
+OpenShip control plane installed on it.
+
+Targets still need runtimes, routing, and any selected service components. “Agentless” does not mean
+nothing runs on the target. See [custom servers](/docs/guides/custom-servers).
+
+## Runtimes
+
+Separate these three decisions:
+
+| Decision | Options | Controls |
+| --- | --- | --- |
+| Control plane | Self-hosted web, managed Cloud, optional Desktop | Where configuration, credentials, and automation are managed. |
+| Deployment destination | Local machine, connected server, Cloud space, supported cluster | Where application traffic and data are handled. |
+| Build location | Destination or a supported separate builder | Where dependencies and build artifacts are produced. |
+
+Self-hosted and Desktop installations can manage supported Docker, Compose, Swarm, and Kubernetes/k3s
+workflows. Cloud uses managed capacity and plan-specific capabilities; it does not expose customer cluster
+administration. See [runtime model](/docs/architecture/runtime-model) for exact scope.
+
+Desktop is an optional way to keep the control plane local. Remote workloads can keep running when the
+app is closed; controller-managed schedules and webhooks require an available control plane.
+
+## Related guides
+
+<Cards>
+  <Card title="Quickstart" href="/docs/getting-started/quickstart" description="Connect code and verify a first deployment." />
+  <Card title="Runtime model" href="/docs/architecture/runtime-model" description="Build placement, orchestration, routing, and operational limits." />
+</Cards>

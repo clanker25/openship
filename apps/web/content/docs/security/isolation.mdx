@@ -1,0 +1,87 @@
+---
+title: Isolation
+description: Understand control-plane permissions, runtime boundaries, networking, storage, and resource limits.
+---
+
+OpenShip combines authorization with runtime-specific isolation. **Containers share a host kernel; bare
+processes share the host environment.** Choose the deployment model for your workload's trust boundary
+and verify the resulting network, mount, and resource configuration.
+
+## Scoping comes first
+
+The control plane checks organization membership and resource permissions before authorized operations.
+These access checks are separate from the isolation provided by Docker, host processes, or a cluster.
+See [permissions](/docs/security/permissions) for roles, grants, and scoped tokens.
+
+OpenShip labels managed Docker resources with project, deployment, service, or build identifiers where
+applicable. Lifecycle and cleanup operations use those identifiers to find the intended resources.
+Labels identify ownership; they are not a runtime security boundary.
+
+## One container per deployment
+
+A Docker release runs application workloads in containers. Multi-service projects and replicated workloads
+can use several containers. Docker provides process, filesystem, and network namespaces according to the
+container configuration.
+
+Isolation can be weakened by privileged containers, host networking, host bind mounts, Docker-socket access,
+or other elevated capabilities. A compromised privileged control plane can also manage its target hosts.
+Do not treat a container as equivalent to a separate virtual machine or a guarantee against hostile code.
+
+## Per-project networks
+
+Docker service projects use project-scoped networks so services can resolve one another by service name.
+Different projects do not share that internal name resolution by default.
+
+| Configuration | Review |
+| --- | --- |
+| Internal service | No unnecessary published host ports or public domain. |
+| Published host port | Bind address, host firewall, and whether the port should be reachable directly. |
+| Public route | Domain, TLS, ingress, and application authentication. |
+| Host or external network | The isolation boundary and dependencies it shares. |
+
+Separate Docker networks do not replace a firewall or application authentication. Published ports, host
+access, explicit shared networks, and configuration changes can create additional paths between workloads.
+
+## Per-project volumes
+
+OpenShip scopes managed named volumes to the project. This avoids accidentally giving two new projects the
+same named data volume. Legacy/adopted volumes can retain their existing names and require ownership checks.
+
+**Bind mounts intentionally use a host path.** Review those paths and permissions before deployment.
+A persistent volume protects data across container replacement; it does not protect against host failure,
+application corruption, or accidental deletion. Use [backups](/docs/guides/backups-restore).
+
+## Resource limits
+
+Self-hosted projects may be unlimited unless limits are configured. Cloud allocations are bounded by the
+purchased capacity and effective runtime limits.
+
+| Resource | Behavior |
+| --- | --- |
+| Docker memory | Configured hard cap; exceeding it can result in an out-of-memory kill. |
+| Docker CPU | Configured CPU quota; do not assume unused host capacity bypasses it. |
+| Storage | Enforcement depends on the runtime and storage backend. Monitor volumes and host free space separately. |
+| Builds | Use the supported build limits and placement; runtime limits alone do not constrain every build path. |
+| Bare processes | Do not assume Docker-style CPU, memory, or filesystem isolation. |
+
+Allow capacity for the operating system, edge, databases, builds, backup operations, and release replacement.
+See [resource settings](/docs/guides/sleep-mode-resources) and [Cloud spaces](/docs/guides/cloud-workspaces).
+
+## How the runtimes compare
+
+| Runtime | Boundary | Operational responsibility |
+| --- | --- | --- |
+| Docker / Compose | Containers and configured project networks on a shared host kernel. | Host patching, daemon access, mounts, network exposure, and limits. |
+| Bare process | Host process and release directory; shared host users, filesystem, and network. | Trusted workloads, host permissions, supervision, and capacity. |
+| Swarm / Kubernetes | Orchestrator-defined workloads, networking, and storage. | Cluster access, placement, policies, persistent data, and failure recovery. |
+| Managed Cloud | Managed capacity and the workload's effective runtime allocation. | Application permissions, secrets, dependencies, and data lifecycle. |
+
+Cloud spaces and legacy allocations can have different capacity models. Do not infer a dedicated VM per
+application or per deployment from a project boundary. Use the actual plan and runtime configuration.
+
+## Related guides
+
+<Cards>
+  <Card title="Permission model" href="/docs/security/permissions" description="Organization roles, resource grants, and scoped credentials." />
+  <Card title="Production readiness" href="/docs/guides/production-readiness" description="Review access, limits, storage, and recovery before launch." />
+</Cards>

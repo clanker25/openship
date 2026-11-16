@@ -1,0 +1,98 @@
+---
+title: Architecture overview
+description: How the interfaces, shared engine, runtime adapters, and infrastructure work together.
+---
+
+OpenShip separates the **control plane** that manages configuration and operations from the **runtimes**
+that build and run applications. The web dashboard, CLI, SDK, and MCP use shared platform operations.
+Desktop is an optional host for the control plane and dashboard.
+
+```text
+Dashboard · CLI · HTTP SDK · MCP
+               │
+        API and authorization
+               │
+        Shared platform engine ← Native SDK (explicit local context)
+               │
+          Runtime adapters
+               │
+   Local host · SSH servers · Cloud · Supported clusters
+```
+
+## The control plane: the API
+
+The Hono API handles HTTP transport, authentication, request validation, and access checks. Shared platform
+operations manage projects, deployments, domains, services, backups, and other resources.
+
+Browser sessions and bearer tokens reach the same authorized operations. The SDK can use HTTP or an
+explicitly configured native context; native mode calls the engine directly and must supply the required
+identity, authorization, and lifecycle dependencies. See [SDK modes](/docs/api/sdk).
+
+## The three ways you drive it
+
+| Interface | Role |
+| --- | --- |
+| Web dashboard | Graphical management for Cloud or a self-hosted instance. |
+| CLI | Remote API operations, local installation, and automation. Native mode is explicit. |
+| Desktop | The dashboard with a local control plane, or a connection to a remote instance. |
+| SDK | JavaScript/TypeScript integration through HTTP or native engine mode. |
+| MCP | Agent tools backed by the same operation and permission boundaries. |
+
+For shared team operations, an always-on instance can receive webhooks and run scheduled work independently
+of an individual computer. Remote application workloads do not require the Desktop window to stay open.
+
+## The platform layer: adapters
+
+| Layer | Responsibility |
+| --- | --- |
+| Platform operations | Configuration, authorization requirements, deployment orchestration, lifecycle, and recovery. |
+| Runtime adapters | Build artifacts and manage supported Docker, bare, Cloud, Swarm, or Kubernetes workloads. |
+| Infrastructure adapters | Routing, certificates, system checks, and component preparation. |
+| State and repositories | Persist configuration and operation records; retrieve the selected installation's data. |
+
+Runtime selection depends on the project, destination, workload type, and installed capabilities.
+See [runtime model](/docs/architecture/runtime-model) for supported combinations and limitations.
+
+## Where an app ends up
+
+The deployment resolves a destination and records the configuration needed to manage that release.
+The destination may be local, reached over SSH, or managed by Cloud. Supported cluster workflows use the
+selected cluster and placement settings.
+
+**Build placement is a separate decision.** Supported build paths can prepare artifacts away from a live
+server; other paths build on the destination. The deployment log identifies the actual build environment.
+
+Routing sends application traffic to the deployed workload. It does not require a dashboard request or
+control-plane database lookup for every application request.
+
+## Shared packages
+
+| Package | Responsibility |
+| --- | --- |
+| `@repo/contracts` | Shared operation contracts and input/output schemas. |
+| `@repo/platform` | Platform operations, engine orchestration, and shared authorization requirements. |
+| `@repo/adapters` | Runtime, routing, TLS, system, and provider implementations. |
+| `@repo/db` | Database schema and repositories. |
+| `@repo/sdk` | HTTP and native client implementation. |
+| `@repo/commands` | Shared command definitions used by the CLI. |
+| `@repo/core` | Shared types, detection, constants, errors, and utilities. |
+| `@repo/ui` | Shared application interface components. |
+| `@repo/onboarding` | Installation and onboarding workflows. |
+| `openship` | Published SDK/CLI package assembled from the shared implementation. |
+
+## One codebase, three roles
+
+Self-hosted web, managed Cloud, and Desktop share the codebase. Deployment mode and capabilities determine
+which administrative operations are available. Cloud manages its own control plane; customer cluster and
+host administration are exposed only in supported contexts.
+
+Data ownership is also explicit: local resources remain in the instance's data store, while Cloud-owned
+resources are authoritative upstream. A connected local instance can act as a gateway to Cloud operations.
+See [Cloud as source](/docs/architecture/cloud-as-source) and [data ownership](/docs/architecture/data-ownership).
+
+## Related guides
+
+<Cards>
+  <Card title="Runtime model" href="/docs/architecture/runtime-model" description="Build placement, Docker, Compose, Swarm, Kubernetes, and edge routing." />
+  <Card title="Production readiness" href="/docs/guides/production-readiness" description="Turn architecture choices into an operational checklist." />
+</Cards>

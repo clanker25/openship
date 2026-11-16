@@ -1,0 +1,226 @@
+"use client";
+
+import { Icon as UiIcon } from "@repo/ui/icons";
+
+import React, { useEffect, useRef, useCallback, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useDeployment } from "@/context/DeploymentContext";
+import { usesServiceDeployment } from "@/context/deployment/types";
+import DeploymentProcessing from "@/components/import-project/DeploymentProcessing";
+import ComposeDeploymentProcessing from "@/components/import-project/ComposeDeploymentProcessing";
+import BuildSkeleton from "@/components/import-project/BuildSkeleton";
+import { useI18n } from "@/components/i18n-provider";
+import { BUILD_SESSION_ERROR_FALLBACK, type BuildSessionLoadResult } from "@/context/deployment/load-session";
+import { ResourceNotFound } from "@/components/resource-not-found";
+import { useCloudDeployPricing } from "@/hooks/useCloudDeployPricing";
+import { cloudDeployFailure, cloudDeployCapacityFailure } from "@/lib/cloud-deploy-pricing";
+import { useCloudResourceKey } from "@/context/CloudResourceContext";
+
+const BuildPage: React.FC = () => {
+  const params = useParams();
+  const scope = useCloudResourceKey();
+  const deploymentId = params.id as string;
+  return <BuildSessionPage key={`${scope}:${deploymentId}`} deploymentId={deploymentId} />;
+};
+
+const BuildSessionPage: React.FC<{ deploymentId: string }> = ({ deploymentId }) => {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { state, config, connectToBuild, loadBuildSession, redeploy, maybeOpenCredentialModal } = useDeployment();
+  const loadSessionRef = useRef(loadBuildSession);
+  loadSessionRef.current = loadBuildSession;
+  const redeployRequested = searchParams.get("redeploy");
+  const { t } = useI18n();
+  const showCloudPricing = useCloudDeployPricing(config.workspaceId);
+  const [hydrated, setHydrated] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  /** Load failure that is NOT a missing deployment — a hydration exception,
+   *  5xx, or network error while the deployment usually exists (#604). Rendered
+   *  as an error state with a retry, never as "not found". */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** Explicit retry reloads this attempt without changing its URL. */
+  const [loadRetryNonce, setLoadRetryNonce] = useState(0);
+  /** Ref tracking which (deploymentId × errorCode) tuple already opened
+   *  the modal — prevents reopening on every re-render. */
+  const shownModalRef = useRef<string | null>(null);
+  const acceptLoadResult = useCallback((result: BuildSessionLoadResult) => {
+    if (result.success) setHydrated(true);
+    else if (!result.superseded) {
+      if (result.notFound) setNotFound(true);
+      else setLoadError(result.error || BUILD_SESSION_ERROR_FALLBACK);
+    }
+  }, []);
+
+  // Initialize build session
+  useEffect(() => {
+    if (!deploymentId) {
+      router.push("/deployments");
+      return;
+    }
+
+    let cancelled = false;
+    const initialize = async () => {
+      // The context can outlive a page visit. Read the authoritative snapshot
+      // once on entry, then let loadBuildSession resume the existing stream.
+      const result = await loadSessionRef.current(deploymentId);
+      if (!cancelled) acceptLoadResult(result);
+    };
+
+    if (!redeployRequested || loadRetryNonce > 0) {
+      void initialize();
+    }
+    return () => { cancelled = true; };
+  }, [
+    deploymentId,
+    router,
+    redeployRequested,
+    loadRetryNonce,
+    acceptLoadResult,
+  ]);
+
+  // Retry a failed (non-not-found) load.
+  const retryLoadSession = useCallback(() => {
+    setLoadError(null);
+    setLoadRetryNonce((n) => n + 1);
+  }, []);
+
+  // Handle redeploy with URL update.
+  //
+  // The server already starts an accepted retry. A new attempt follows the
+  // snapshot/resume path on entry; only a same-id retry reconnects in place.
+  const handleRedeploy = useCallback(async (options?: { reuseBuild?: boolean }): Promise<string | null> => {
+    const newDeploymentId = await redeploy(deploymentId, options);
+
+    if (newDeploymentId) {
+      setHydrated(true);
+      if (newDeploymentId !== deploymentId) {
+        router.replace(`/build/${newDeploymentId}`, { scroll: false });
+      } else void connectToBuild(newDeploymentId, false);
+    }
+    // Return the id so the Redeploy button can hold its loading state until
+    // navigation (success) and only re-enable itself on failure (null).
+    return newDeploymentId;
+  }, [redeploy, deploymentId, router, connectToBuild]);
+
+  const redeployHandlerRef = useRef(handleRedeploy);
+  redeployHandlerRef.current = handleRedeploy;
+  const redeployAttemptRef = useRef<Promise<string | null> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (redeployRequested) {
+      const attempt = redeployAttemptRef.current ??= redeployHandlerRef.current();
+      void attempt.then(async (id) => {
+        if (id || cancelled) return;
+        // Admission can reject the deep-link retry. Keep its original attempt
+        // available instead of leaving the page on a loading skeleton.
+        const result = await loadSessionRef.current(deploymentId);
+        if (!cancelled) acceptLoadResult(result);
+      });
+    }
+    return () => { cancelled = true; };
+  }, [redeployRequested, deploymentId, acceptLoadResult]);
+
+  // ── Clone-credential recovery modal ─────────────────────────────────
+  // When the build fails because no GitHub clone token could be minted
+  // for the repo's owner, surface DeployCredentialModal so the user can
+  // install the App / paste a PAT / switch to local build / use their
+  // GitHub session instead of staring at a "Deployment Failed" toast
+  // with no next step.
+  useEffect(() => {
+    if (!hydrated || state.deploymentId !== deploymentId || !state.deploymentFailed || !state.errorCode) return;
+    // Capacity diagnosis remains visible in the build view; pricing opens on click.
+    if (config.deployTarget === "cloud" && state.errorDetails?.workspaceId && cloudDeployCapacityFailure(state)) return;
+    // De-dupe — same deployment + same code shouldn't reopen the modal on every
+    // state tick. The shared handler (useDeploymentBuild.maybeOpenCredentialModal)
+    // owns the modal + its options; here we just pass the build-fail trigger and
+    // an auto-redeploy on the user's fix.
+    const key = `${deploymentId}:${state.errorCode}`;
+    if (shownModalRef.current === key) return;
+    const cloudFailure = cloudDeployFailure(state);
+    if (cloudFailure && showCloudPricing(cloudFailure, handleRedeploy)) {
+      shownModalRef.current = key;
+      return;
+    }
+    const opened = maybeOpenCredentialModal(state.errorCode, {
+      trigger: "build-fail",
+      onResolved: () => void handleRedeploy(),
+    });
+    if (opened) shownModalRef.current = key;
+  }, [hydrated, state.deploymentId, state.deploymentFailed, state.errorCode, state.errorDetails, state.projectId, config.deployTarget, deploymentId, maybeOpenCredentialModal, handleRedeploy, showCloudPricing]);
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        <ResourceNotFound
+          icon={<UiIcon name="warning" className="size-7" />}
+          title={t.chrome.error.title}
+          description={
+            <>
+              {t.chrome.error.description}
+              <span className="mt-1 block break-all font-mono text-xs opacity-80">{loadError}</span>
+            </>
+          }
+          detail={deploymentId}
+          detailCopyLabel={t.chrome.notFound.copyId}
+          actions={[
+            {
+              label: t.chrome.error.tryAgain,
+              icon: <UiIcon name="rotate-left" className="size-4" />,
+              onClick: retryLoadSession,
+            },
+            {
+              href: "/deployments",
+              label: t.misc.buildPage.viewDeployments,
+              icon: <UiIcon name="rocket" className="size-4" />,
+            },
+            {
+              href: "/",
+              label: t.misc.buildPage.goHome,
+              variant: "secondary",
+            },
+          ]}
+        />
+      </div>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-6">
+        <ResourceNotFound
+          icon={<UiIcon name="file-warning" className="size-7" />}
+          title={t.misc.buildPage.notFoundTitle}
+          description={t.misc.buildPage.notFoundDescription}
+          detail={deploymentId}
+          detailCopyLabel={t.chrome.notFound.copyId}
+          actions={[
+            {
+              href: "/deployments",
+              label: t.misc.buildPage.viewDeployments,
+              icon: <UiIcon name="rocket" className="size-4" />,
+            },
+            {
+              href: "/",
+              label: t.misc.buildPage.goHome,
+              icon: <UiIcon name="home" className="size-4" />,
+              variant: "secondary",
+            },
+          ]}
+        />
+      </div>
+    );
+  }
+
+  if (!hydrated || state.deploymentId !== deploymentId) {
+    return <BuildSkeleton />;
+  }
+
+  if (usesServiceDeployment(config)) {
+    return <ComposeDeploymentProcessing onRedeploy={handleRedeploy} />;
+  }
+
+  return <DeploymentProcessing onRedeploy={handleRedeploy} />;
+};
+
+export default BuildPage;

@@ -1,0 +1,112 @@
+---
+title: Troubleshooting
+description: Locate the failing operation, collect useful diagnostics, and choose the matching recovery procedure.
+---
+
+Start with the operation that failed. Read its error and surrounding output; the last log line may only
+summarize a cause reported earlier. Record the project, deployment, destination, and approximate time.
+
+## Where the useful information lives
+
+| Symptom | First check | Detailed guide |
+| --- | --- | --- |
+| Build or deployment fails | Deployment log and failing command. | [Deployment failures](/docs/troubleshooting/deployments) |
+| Application is running but errors | Runtime logs, service state, and dependency connections. | [Logs and monitoring](/docs/guides/logs-monitoring) |
+| Public URL fails | Route, DNS, certificate, and HTTP request logs. | [Domains and SSL](/docs/troubleshooting/domains-ssl) |
+| Repository or push deployment fails | Source credential, repository permissions, and webhook delivery. | [GitHub](/docs/troubleshooting/github) |
+| Remote operation cannot connect | SSH access and required server components. | [Servers and SSH](/docs/troubleshooting/servers-ssh) |
+| Containerized control plane cannot operate its host | Host SSH channel and container-to-host firewall rules. | [Host channel](/docs/troubleshooting/host-channel) |
+| Desktop does not start | Local process, data directory, and update state. | [Desktop and local data](/docs/troubleshooting/desktop-data) |
+
+### The live build screen
+
+Open the failed deployment and identify the first failing stage. Keep the command, exit result, and nearby
+log lines. Review the [deploy wizard](/docs/dashboard/deploy-wizard) if the configured source or destination is unexpected.
+
+### The project Logs tab
+
+Runtime output shows application stdout/stderr. HTTP request logs show traffic handled by the configured
+edge. An empty traffic log is different from an application crash: confirm DNS and ingress as well as runtime health.
+
+Use **Copy** or **Download** to collect logs. Review them for credentials and customer data before sharing.
+
+### The CLI
+
+```bash
+openship doctor
+openship status
+openship logs <deploymentId> --tail 50
+openship logs <deploymentId> --follow
+```
+
+Check the selected instance/context before interpreting these results. `doctor` diagnoses configuration and
+connectivity; a healthy API response does not prove that an individual application is healthy.
+
+## How to read an Openship error
+
+API failures commonly provide a message and a machine-readable code:
+
+```json
+{ "error": "human-readable message", "code": "MACHINE_CODE" }
+```
+
+| Status | Check |
+| --- | --- |
+| `400` | Request fields and validation details. |
+| `401` | Session or token and selected instance. |
+| `403` | Organization membership, resource grant, and operation-specific authority. |
+| `404` | Resource identifier, scope, and whether it still exists. |
+| `409` | Conflicting state, concurrent operation, or resource already in use. |
+| `500` | Server-side diagnostics for the failed operation. |
+
+Do not retry a destructive operation blindly after an uncertain response. Check its current state first.
+See [common errors](/docs/troubleshooting/common-errors).
+
+### Symptom: a deploy failed and you can't tell why
+
+1. Find the failing command and surrounding output in the deployment log.
+2. Check the working directory, build/start command, port, and required values.
+3. Edit runtime variables in **Services → service → Environment**. Build inputs require a rebuild.
+4. Retry after correcting the cause. Use [deployment troubleshooting](/docs/troubleshooting/deployments) for specific failures.
+
+### Symptom: the CLI can't reach your instance
+
+1. Run `openship doctor` and check the selected context and API address.
+2. Verify that the instance is running and reachable from this machine.
+3. Reauthenticate with `openship login` if the context has no usable token.
+4. Check reverse-proxy and public-URL configuration when the browser loads but login or API requests fail.
+
+### Symptom: openship up refuses to regenerate secrets
+
+This protection means the installation still has database data, but its original secrets could not be
+read from `~/.openship/compose/.env`. Regenerating the values can break database access and make encrypted
+environment values unreadable.
+
+1. Run as the original installation user. `sudo` may select `/root/.openship` instead of your user's data.
+2. Check the file's existence and permissions without printing secrets into shared logs.
+3. Restore the protected original configuration or the installer's `.env.bak` when appropriate.
+4. Use `openship up --dry-run` to inspect whether values would be preserved or generated.
+
+<Callout title="Resetting keys can lose access to encrypted values" type="warn">
+Use `--reset-secrets` only when the original values cannot be recovered. It realigns the database password,
+but stored values encrypted with the lost key cannot be decrypted. Re-enter those values before relying on a deployment.
+</Callout>
+
+### Symptom: the openship command crashes, or vanishes after a Node upgrade
+
+Package-manager installations require Node.js 22 or newer. Version managers keep global packages per Node
+version, so a Node upgrade may remove the previous CLI from your active `PATH`.
+
+1. Check `node --version`.
+2. Reinstall with `npm i -g openship` under the active Node version, or use the official installer.
+3. Accept the supported Node fallback when prompted, or set `OPENSHIP_VENDOR_NODE=1` in automation.
+4. For the official installer, open a new terminal and verify that `~/.openship/bin` is on `PATH`.
+
+## Jump to the right page
+
+<Cards>
+  <Card title="Deployment failures" href="/docs/troubleshooting/deployments" description="Build commands, startup failures, dependencies, and runtime configuration." />
+  <Card title="Host channel" href="/docs/troubleshooting/host-channel" description="Diagnose host operations from a containerized control plane." />
+  <Card title="Common errors" href="/docs/troubleshooting/common-errors" description="Look up API error codes and recovery steps." />
+  <Card title="Production readiness" href="/docs/guides/production-readiness" description="Review prevention, monitoring, and recovery practices." />
+</Cards>

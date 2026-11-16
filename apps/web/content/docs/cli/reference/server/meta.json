@@ -1,0 +1,13 @@
+{
+  "title": "server",
+  "pages": [
+    "index",
+    "cluster",
+    "containers",
+    "github",
+    "managed",
+    "network",
+    "security",
+    "tunnel"
+  ]
+}

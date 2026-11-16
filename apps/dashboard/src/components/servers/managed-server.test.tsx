@@ -1,0 +1,440 @@
+// @vitest-environment happy-dom
+import { act, useState, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { CloudWorkspaceSummary, ServerDetail } from "@repo/contracts";
+import { I18nProvider } from "@/components/i18n-provider";
+import { baseDictionary } from "@/i18n";
+import { PlatformProvider } from "@/context/PlatformContext";
+import { AppDestinationPicker, type AppDestination } from "@/components/deploy/AppDestinationPicker";
+import ServerSelector from "@/components/shared/ServerSelector";
+import { PlatformImportServices } from "@/components/migration/PlatformImportServices";
+import { BillingLink, BillingWorkspaceProvider, workspaceBillingHref } from "@/components/billing/BillingWorkspaceContext";
+import { ApiError } from "@/lib/api/client";
+import { ServerUsage } from "./ServerUsage";
+import { ManagedServerPlan } from "./managed/ManagedServerPlan";
+import { ManagedServerActionFeedback } from "./managed/ManagedServerActionFeedback";
+import { ServerCapacityRecovery } from "./managed/ServerCapacityRecovery";
+import { useManagedServerActions } from "./managed/useManagedServerActions";
+import { CloudResourceContext } from "@/context/CloudResourceContext";
+
+const h = vi.hoisted(() => ({
+  organizationId: "org-a", list: vi.fn(), usage: vi.fn(), ensure: vi.fn(),
+  previewResize: vi.fn(), resize: vi.fn(), add: vi.fn(), retry: vi.fn(), connect: vi.fn(),
+}));
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "user-a" }, session: { activeOrganizationId: h.organizationId } } }),
+}));
+vi.mock("@/lib/api/system", () => ({ systemApi: {
+  listServerDestinations: h.list, serverUsage: h.usage, ensureServer: h.ensure,
+  previewServerResize: h.previewResize, resizeServer: h.resize,
+  connectManagedServer: h.connect,
+} }));
+vi.mock("@/lib/api/settings", () => ({ settingsApi: { get: async () => ({ defaultServerId: null }) } }));
+vi.mock("@/components/servers/add-server-modal", () => ({ useAddServerModal: () => h.add }));
+
+const copy = baseDictionary.billing.workspaces;
+const workspace: CloudWorkspaceSummary = {
+  id: "cws-a", serverId: "managed-a", name: "Production", planTierId: "hobby",
+  subscriptionStatus: "active", projectCount: 2, state: "running", operation: null,
+  resources: { cpuCores: 1, memoryMb: 4096, diskMb: 25600 }, createdAt: "2026-10-01T00:00:00Z",
+};
+const server: ServerDetail = {
+  id: workspace.serverId, name: workspace.name, managed: workspace, connection: "cloud",
+  isLocal: false, sshHost: null, sshPort: null, sshUser: null, sshAuthMethod: null,
+  sshKeyPath: null, hasStoredKeyMaterial: false, sshJumpHost: null, sshArgs: null,
+  createdAt: workspace.createdAt, country: null, sshTransport: "direct", projectCount: 2,
+  hostChannel: null, capabilities: { monitor: true, terminal: true, exec: true, hostConfiguration: false, ssh: false },
+};
+const usage = {
+  measuredAt: "2026-10-01T00:00:00Z", available: true, reason: null, cpuPercent: 23,
+  memoryUsedMb: 512, memoryAvailableMb: 3584, diskUsedMb: 2048, diskAvailableMb: 23552,
+  diskTotalMb: 25600, sharedDiskMb: 1024, projects: [{ id: "p-a", name: "API", diskMb: 1024 }],
+};
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+};
+let root: Root;
+let host: HTMLDivElement;
+const render = (children: ReactNode, selfHosted = false) => act(async () => root.render(
+  <I18nProvider><PlatformProvider selfHosted={selfHosted}>{children}</PlatformProvider></I18nProvider>,
+));
+const button = (label: string) => {
+  const result = [...host.querySelectorAll<HTMLButtonElement>("button")].find(node =>
+    node.textContent?.trim() === label || node.getAttribute("aria-label") === label);
+  expect(result, label).toBeDefined();
+  return result!;
+};
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  h.organizationId = "org-a";
+  h.list.mockResolvedValue({ servers: [server] });
+  h.usage.mockResolvedValue(usage);
+  host = document.createElement("div");
+  document.body.append(host);
+  root = createRoot(host);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  host.remove();
+  vi.unstubAllGlobals();
+});
+
+it("keeps the only selected server in the shared picker with Add server inside its menu", async () => {
+  const change = vi.fn();
+  await render(<ServerSelector forDeployment onSelect={change} />);
+  expect(change).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: server.id }));
+  expect(host.textContent).toContain("Production");
+  const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]');
+  expect(trigger).not.toBeNull();
+  expect(document.body.textContent).not.toContain(copy.newProjectServer);
+  expect(h.ensure).not.toHaveBeenCalled();
+  expect(h.add).not.toHaveBeenCalled();
+  await act(async () => trigger!.click());
+  expect(document.querySelector('[role="listbox"]')?.textContent).toContain("Production");
+  const add = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+    (node) => node.textContent?.trim() === copy.newProjectServer,
+  );
+  expect(add).toBeDefined();
+  await act(async () => add!.click());
+  expect(h.add).toHaveBeenCalledOnce();
+  expect(document.querySelector('[role="listbox"]')).toBeNull();
+  expect(change).toHaveBeenCalledTimes(1);
+  expect(h.ensure).not.toHaveBeenCalled();
+});
+
+it.each(["railway", "vercel"] as const)(
+  "changes the %s import destination through the real shared picker",
+  async (provider) => {
+    const connected: ServerDetail = {
+      ...server,
+      id: "connected-server",
+      name: "SSH destination",
+      managed: undefined,
+      connection: "ssh",
+      sshHost: "192.0.2.10",
+      sshUser: "deploy",
+      sshPort: 22,
+    };
+    h.list.mockResolvedValue({ servers: [connected, server] });
+    const target = vi.fn(),
+      review = vi.fn();
+    function Import() {
+      const [id, setId] = useState(connected.id);
+      const [ready, setReady] = useState(false);
+      return (
+        <PlatformImportServices
+          discovery={{
+            provider,
+            draftId: "draft",
+            projectName: "Waypoint",
+            environmentName: "Production",
+            warnings: [],
+            services: [
+              {
+                id: "web",
+                name: "web",
+                kind: "app",
+                image: "nginx:alpine",
+                variables: [],
+                volumes: [],
+                domains: [],
+                warnings: [],
+                blockers: [],
+              },
+            ],
+          }}
+          choices={{ web: { id: "web", name: "web", selected: true, data: "empty" } }}
+          busy={false}
+          targetId={id}
+          targetReady={ready}
+          projectName="Waypoint"
+          onProjectName={() => {}}
+          onChoose={() => {}}
+          onTargetReady={setReady}
+          onTarget={(next, name) => {
+            setId(next);
+            target(next, name);
+          }}
+          onReview={() => review(id)}
+        />
+      );
+    }
+    await render(<Import />);
+    expect(button("Check import").disabled).toBe(false);
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]')!;
+    expect(trigger.textContent).toContain(connected.name);
+    await act(async () => trigger.click());
+    const destination = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(
+      (node) => node.textContent?.includes(server.name ?? server.id),
+    );
+    expect(destination).toBeDefined();
+    await act(async () => destination!.click());
+    expect(target).toHaveBeenCalledExactlyOnceWith(server.id, server.name);
+    expect(trigger.textContent).toContain(server.name);
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+    await act(async () => button("Check import").click());
+    expect(review).toHaveBeenCalledExactlyOnceWith(server.id);
+    expect(h.add).not.toHaveBeenCalled();
+    expect(h.ensure).not.toHaveBeenCalled();
+  },
+);
+it.each([true, false])("uses an acquired server for catalog apps (self-hosted: %s)", async selfHosted => {
+  const changed = vi.fn(), ready = vi.fn();
+  function Picker() {
+    const [value, setValue] = useState<AppDestination | null>(null);
+    return <AppDestinationPicker value={value} onReadyChange={ready} onChange={next => { changed(next); setValue(next); }} />;
+  }
+  await render(<Picker />, selfHosted);
+  expect(changed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    deployTarget: "cloud", serverId: server.id, workspaceId: workspace.id,
+  }));
+  expect(ready).toHaveBeenLastCalledWith(true);
+  expect(h.ensure).not.toHaveBeenCalled();
+});
+it("requires acquiring a server on self-hosted instead of emitting an unbound Cloud target", async () => {
+  h.list.mockResolvedValue({ servers: [] });
+  const change = vi.fn(), ready = vi.fn();
+  await render(<AppDestinationPicker value={null} onChange={change} onReadyChange={ready} />, true);
+  expect(ready).toHaveBeenLastCalledWith(false);
+  expect(change).not.toHaveBeenCalled();
+  await act(async () => button(baseDictionary.widgets.shared.serverSelector.addServer).click());
+  expect(h.add).toHaveBeenCalledOnce();
+  expect(change).not.toHaveBeenCalled();
+});
+it("keeps first-subscription setup read-only on Cloud", async () => {
+  h.list.mockResolvedValue({ servers: [] });
+  await render(<ServerSelector forDeployment onSelect={vi.fn()} />);
+  expect(host.textContent).toContain(copy.defaultHint);
+  expect(h.ensure).not.toHaveBeenCalled();
+  expect(h.add).not.toHaveBeenCalled();
+});
+it("keeps an explicit own-server choice out of the Cloud inventory and purchase fallback", async () => {
+  const change = vi.fn(), ready = vi.fn();
+  await render(<ServerSelector forDeployment destinationKind="server" autoSelectFirst onSelect={change} onReadyChange={ready} />);
+  expect(change).not.toHaveBeenCalled();
+  expect(ready).toHaveBeenLastCalledWith(false);
+  expect(host.textContent).not.toContain("Production");
+  expect(host.textContent).not.toContain(copy.defaultHint);
+});
+it("keeps an explicit Cloud choice out of a connected-server default", async () => {
+  h.list.mockResolvedValue({ servers: [{ ...server, id: "ssh-server", managed: null, connection: "ssh" }] });
+  const change = vi.fn();
+  await render(<ServerSelector forDeployment destinationKind="cloud" autoSelectFirst onSelect={change} />);
+  expect(change).toHaveBeenCalledExactlyOnceWith(null);
+  expect(host.textContent).toContain(copy.defaultHint);
+  expect(h.add).not.toHaveBeenCalled();
+});
+it.each([1, 2])("asks which connected server to use from a public link, even with %s server(s)", async count => {
+  const servers = Array.from({ length: count }, (_, i) => ({
+    ...server, id: `ssh-${i}`, managed: null, connection: "ssh" as const, name: `VPS ${i + 1}`,
+  }));
+  h.list.mockResolvedValue({ servers: [server, ...servers] });
+  const changed = vi.fn(), ready = vi.fn();
+  function Picker() {
+    const [value, setValue] = useState<AppDestination | null>(null);
+    return <AppDestinationPicker destinationKind="server" value={value} onReadyChange={ready}
+      onChange={next => { changed(next); setValue(next); }} />;
+  }
+  await render(<Picker />);
+  expect(changed).not.toHaveBeenCalled();
+  expect(ready).toHaveBeenLastCalledWith(false);
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.getAttribute("aria-label")).toBe(baseDictionary.deploy.targetStep.chooseServer);
+  await act(async () => dialog.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]')!.click());
+  const list = document.querySelector('[role="listbox"]')!;
+  expect(list.textContent).not.toContain(server.name);
+  expect(list.querySelectorAll('[role="option"]')).toHaveLength(count);
+  await act(async () => [...list.querySelectorAll<HTMLElement>('[role="option"]')].at(-1)!.click());
+  expect(changed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    serverId: servers[count - 1]!.id, deployTarget: "server", workspaceId: undefined,
+  }));
+  expect(ready).toHaveBeenLastCalledWith(true);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.textContent).toContain(`VPS ${count}`);
+  expect(h.list).toHaveBeenCalledOnce();
+  expect(h.add).not.toHaveBeenCalled();
+  expect(h.ensure).not.toHaveBeenCalled();
+});
+it("adds a missing connected server through the existing flow and selects it", async () => {
+  h.list.mockResolvedValue({ servers: [server] });
+  const change = vi.fn(), ready = vi.fn();
+  await render(<ServerSelector destinationKind="server" forDeployment onSelect={change} onReadyChange={ready} />);
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain(baseDictionary.widgets.shared.serverSelector.noServerConnected);
+  expect(dialog.textContent).not.toContain(copy.noneAvailable);
+  expect(dialog.textContent).not.toContain(copy.newProjectServer);
+  expect(h.add).not.toHaveBeenCalled();
+  await act(async () => [...dialog.querySelectorAll('button')].find(node =>
+    node.textContent === baseDictionary.widgets.shared.serverSelector.addNewServer)!.click());
+  expect(h.add).toHaveBeenCalledOnce();
+  expect(change).not.toHaveBeenCalled();
+  const connected = { ...server, id: "new-vps", name: "New VPS", connection: "ssh", managed: null };
+  h.list.mockResolvedValue({ servers: [server, connected] });
+  await act(async () => h.add.mock.calls[0]![0](connected));
+  expect(change).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: connected.id }));
+  expect(ready).toHaveBeenLastCalledWith(true);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.textContent).toContain(connected.name);
+  expect(h.ensure).not.toHaveBeenCalled();
+});
+it("shows loading and retry in the destination prompt without treating failed inventory as empty", async () => {
+  let reject!: (error: Error) => void;
+  h.list.mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }));
+  const change = vi.fn();
+  await render(<ServerSelector destinationKind="server" forDeployment onSelect={change} />);
+  expect(document.querySelector('[role="dialog"] [aria-busy="true"]')).not.toBeNull();
+  expect(h.add).not.toHaveBeenCalled();
+  await act(async () => reject(new Error("Inventory unavailable")));
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("Inventory unavailable");
+  expect(dialog.textContent).not.toContain(baseDictionary.widgets.shared.serverSelector.noServerConnected);
+  h.list.mockResolvedValue({ servers: [] });
+  await act(async () => [...dialog.querySelectorAll('button')].find(node =>
+    node.textContent === baseDictionary.billing.plansRoute.tryAgain)!.click());
+  expect(dialog.textContent).toContain(baseDictionary.widgets.shared.serverSelector.noServerConnected);
+  expect(change).not.toHaveBeenCalled();
+});
+it("lets users dismiss the prompt without selecting or deploying to a default", async () => {
+  h.list.mockResolvedValue({ servers: [{ ...server, id: "ssh-server", managed: null, name: "VPS" }] });
+  const change = vi.fn(), ready = vi.fn();
+  await render(<ServerSelector destinationKind="server" forDeployment autoSelectFirst onSelect={change} onReadyChange={ready} />);
+  await act(async () => document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label="Close"]')!.click());
+  await render(<ServerSelector destinationKind="server" forDeployment autoSelectFirst onSelect={change} onReadyChange={ready} />);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(change).not.toHaveBeenCalled();
+  expect(ready).toHaveBeenLastCalledWith(false);
+  expect(host.querySelector('button[aria-haspopup="listbox"]')).not.toBeNull();
+});
+it("keeps saved server bindings instead of prompting or replacing them", async () => {
+  const change = vi.fn(), ready = vi.fn();
+  await render(<ServerSelector destinationKind="server" forDeployment readOnly value="saved-server"
+    selectedName="Saved server" onSelect={change} onReadyChange={ready} />);
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(h.list).not.toHaveBeenCalled();
+  expect(change).not.toHaveBeenCalled();
+  expect(ready).toHaveBeenLastCalledWith(true);
+  expect(host.textContent).toContain("Saved server");
+});
+it("ignores a destination response from the previous organization", async () => {
+  const old = deferred<unknown>();
+  h.list.mockReturnValueOnce(old.promise);
+  const change = vi.fn();
+  await render(<ServerSelector forDeployment onSelect={change} />);
+  h.organizationId = "org-b";
+  h.list.mockResolvedValue({ servers: [{ ...server, id: "managed-b", name: "Other team" }] });
+  await render(<ServerSelector forDeployment onSelect={change} />);
+  await act(async () => old.resolve({ servers: [{ ...server, name: "Previous team" }] }));
+  expect(host.textContent).toContain("Other team");
+  expect(host.textContent).not.toContain("Previous team");
+  expect(change).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "managed-b" }));
+});
+it("keeps a saved binding readable without listing other servers", async () => {
+  const ready = vi.fn();
+  await render(<ServerSelector readOnly value={server.id} selectedName="Saved destination" onSelect={vi.fn()} onReadyChange={ready} />);
+  expect(host.textContent).toContain("Saved destination");
+  expect(h.list).not.toHaveBeenCalled();
+  expect(ready).toHaveBeenLastCalledWith(true);
+});
+
+it("uses the existing verified link flow before selecting a discovered Cloud deployment server", async () => {
+  const pending = deferred<CloudWorkspaceSummary>();
+  h.list.mockResolvedValue({ servers: [{ ...server, source: "cloud" }] });
+  h.connect.mockReturnValueOnce(pending.promise);
+  const changed = vi.fn(), ready = vi.fn();
+  function Picker() {
+    const [value, setValue] = useState<AppDestination | null>(null);
+    return <AppDestinationPicker value={value} onReadyChange={ready} onChange={next => { changed(next); setValue(next); }} />;
+  }
+  await render(<Picker />, true);
+  expect(h.connect).toHaveBeenCalledExactlyOnceWith({ serverId: server.id });
+  expect(ready).toHaveBeenLastCalledWith(false);
+  expect(changed).not.toHaveBeenCalled();
+  const linked = { ...workspace, id: "linked-workspace", serverId: "linked-server" };
+  h.list.mockResolvedValue({ servers: [{ ...server, id: linked.serverId, source: "local", managed: linked,
+    cloudReference: { serverId: server.id, workspaceId: workspace.id } }] });
+  await act(async () => pending.resolve(linked));
+  expect(changed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ deployTarget: "cloud", serverId: linked.serverId, workspaceId: linked.id }));
+  expect(ready).toHaveBeenLastCalledWith(true);
+  expect(h.ensure).not.toHaveBeenCalled();
+});
+
+it("shows a saved Cloud destination through its local alias without making another link", async () => {
+  h.list.mockResolvedValue({ servers: [{ ...server, id: "linked-server", source: "local", cloudReference: { serverId: server.id, workspaceId: workspace.id } }] });
+  const ready = vi.fn();
+  await render(<ServerSelector value={server.id} forDeployment onSelect={vi.fn()} onReadyChange={ready} />, true);
+  expect(host.textContent).toContain("Production");
+  expect(ready).toHaveBeenLastCalledWith(true);
+  expect(h.connect).not.toHaveBeenCalled();
+});
+
+it("ignores a pending server selection completed after switching the Cloud account", async () => {
+  const pending = deferred<CloudWorkspaceSummary>(), changed = vi.fn();
+  h.list.mockResolvedValue({ servers: [{ ...server, source: "cloud" }] });
+  h.connect.mockReturnValueOnce(pending.promise);
+  await render(<CloudResourceContext.Provider value="account-a"><ServerSelector forDeployment onSelect={changed} /></CloudResourceContext.Provider>, true);
+  h.list.mockResolvedValue({ servers: [] });
+  await render(<CloudResourceContext.Provider value="account-b"><ServerSelector forDeployment onSelect={changed} /></CloudResourceContext.Provider>, true);
+  await act(async () => pending.resolve({ ...workspace, id: "previous-workspace", serverId: "previous-server" }));
+  expect(changed).not.toHaveBeenCalled();
+  expect(host.textContent).not.toContain("Production");
+});
+
+function Actions({ initial = workspace }: { initial?: CloudWorkspaceSummary }) {
+  const [row, setRow] = useState(initial);
+  const actions = useManagedServerActions(row.serverId, setRow);
+  return <><ManagedServerPlan server={row} actions={actions} />
+    <ManagedServerActionFeedback server={row} actions={actions} deleting={false} onCancelDelete={() => {}} /></>;
+}
+it("resumes a stopped server only once when the button is pressed twice", async () => {
+  const pending = deferred<CloudWorkspaceSummary>();
+  h.ensure.mockReturnValue(pending.promise);
+  await render(<Actions initial={{ ...workspace, state: "stopped" }} />);
+  await act(async () => { button(copy.resume).click(); button(copy.resume).click(); });
+  expect(h.ensure).toHaveBeenCalledExactlyOnceWith(server.id);
+  expect(button(copy.resume).disabled).toBe(true);
+  await act(async () => pending.resolve(workspace));
+  expect(host.textContent).not.toContain(copy.resume);
+});
+it("retains the reviewed resize and request key after an uncertain response", async () => {
+  const preview = { revision: "a".repeat(64), before: workspace.resources,
+    after: { cpuCores: 2, memoryMb: 8192, diskMb: 32768 }, restartProjects: [{ id: "p-a", name: "API" }] };
+  h.previewResize.mockResolvedValue(preview);
+  h.resize.mockRejectedValueOnce(new ApiError(504, "Gateway Timeout", { error: "Request timed out" }));
+  await render(<Actions />);
+  await act(async () => button(copy.resize).click());
+  expect(host.textContent).toContain("API");
+  expect(h.resize).not.toHaveBeenCalled();
+  await act(async () => button(copy.confirmResize).click());
+  const request = h.resize.mock.calls[0]![1];
+  expect(request).toMatchObject({ revision: preview.revision, confirmRestart: true });
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Request timed out");
+  h.resize.mockResolvedValue({ ...workspace, state: "queued" });
+  await act(async () => button(copy.confirmResize).click());
+  expect(h.resize.mock.calls[1]).toEqual([server.id, request]);
+});
+it("clears stale measurements when a server usage refresh fails", async () => {
+  await render(<ServerUsage serverId={server.id} resources={workspace.resources} showProjects />);
+  expect(host.textContent).toContain("API");
+  h.usage.mockRejectedValue(new ApiError(503, "Service Unavailable", { error: "Server unreachable" }));
+  await act(async () => button(baseDictionary.billing.resourceOverview.refresh).click());
+  expect(host.textContent).not.toContain("API");
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Server unreachable");
+});
+it("opens capacity recovery for the affected server without changing another server's subscription", async () => {
+  h.list.mockResolvedValue({ servers: [{ ...server, id: "other", managed: { ...workspace, id: "other-workspace" } }, server] });
+  await render(<ServerCapacityRecovery workspaceId={workspace.id} onClose={() => {}} onRetry={h.retry} />);
+  expect(host.querySelector('a')?.getAttribute("href")).toBe(`/servers/${server.id}`);
+  expect(h.resize).not.toHaveBeenCalled();
+  await act(async () => button(copy.retryDeployment).click());
+  expect(h.retry).toHaveBeenCalledOnce();
+});
+it("preserves the server subscription in billing navigation", async () => {
+  expect(workspaceBillingHref("/billing/usage?workspaceId=old&groupBy=day#chart", "new"))
+    .toBe("/billing/usage?workspaceId=new&groupBy=day#chart");
+  await render(<BillingWorkspaceProvider workspaceId="cws-b"><BillingLink href="/billing/plans">Plans</BillingLink></BillingWorkspaceProvider>);
+  expect(host.querySelector("a")?.getAttribute("href")).toBe("/billing/plans?workspaceId=cws-b");
+});

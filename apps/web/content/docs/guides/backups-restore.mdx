@@ -1,0 +1,174 @@
+---
+title: Backups & restore
+description: Configure backup destinations and retention, verify scheduled copies, and test recovery.
+---
+
+**Before you start:** identify the service or project data to protect, choose a backup destination, and
+confirm that you have permission to manage both. Prefer a destination that survives loss of the workload host.
+
+A **destination** stores the archive. A **policy** defines the scope, schedule, and retention.
+A **restore** replaces current data with a selected archive.
+
+## Step 1 — Add a place to keep backups
+
+### Open the Backups page
+
+Open **Backups → Add Destination**. Destinations are reusable across project backup policies.
+
+### Pick the kind of storage
+
+| Destination | Required configuration |
+| --- | --- |
+| S3-compatible | Bucket, region, credentials, and endpoint for non-AWS providers. Optional path prefix. |
+| SFTP | Host, port, user, key or password, and optional remote path. |
+| Existing server | A connected server and optional remote path; reuses its SSH credentials. |
+| Local disk | Absolute path on the control-plane machine. Unavailable in Cloud mode. |
+
+### Fill in the details
+
+Give the destination a recognizable name and configure its connection. Save it before creating a policy.
+Secrets are encrypted at rest. When editing a saved destination, leave unchanged secret fields blank to
+retain their stored values.
+
+A local copy on the same host is useful for convenience but does not protect against loss of that host.
+
+### Check that it works
+
+Select **Verify connection**. OpenShip writes, reads, and removes a test file. Resolve any failure before
+using the destination in a scheduled policy. Marking a destination as default does not replace selecting
+the destination for a policy.
+
+## Step 2 — Set a backup schedule
+
+### Open the project's Backup tab
+
+Open the project and select **Backup**. Choose the service to protect and select **Create policy**.
+
+### Create a policy for a service
+
+| Setting | Purpose |
+| --- | --- |
+| Destination | Where the archive is stored. |
+| Schedule | Preset or five-field cron expression. **Manual only** disables scheduled runs. |
+| Retain count / days | Bound the number or age of retained copies. |
+| Pre-deploy trigger | Take a backup before a new deployment goes live. |
+| Pre-hook | Prepare consistent data; a failed hook aborts the backup. |
+| Post-hook | Cleanup after upload. |
+| Webhook trigger | Private trigger URL for an external scheduler or CI system. |
+
+For a database, verify that the backup method captures consistent data. Use the appropriate database dump
+or application-aware procedure; copying live database files is not automatically a valid logical backup.
+Protect webhook URLs and hook credentials as secrets.
+
+Retention runs after successful backups, independently for each service in a project policy. Protected
+copies are exempt. Cleanup failures retain records for retry without invalidating the new backup. The
+**Backup retention prune** system job provides a scheduled fallback; inspect its schedule under **Jobs**.
+
+Dashboard policies are per service. The CLI also supports a project-wide policy when `--service` is omitted.
+Scheduled runs require the relevant controller and destination to be available.
+
+## Step 3 — Run a backup now
+
+Select **Backup now** for a service with a policy. Follow progress and confirm the completed run, archive
+size, and destination. Closing the browser does not cancel the server-side operation.
+
+Do not rely on the success badge alone: periodically restore an archive to a safe target and validate the
+application data. Record the test result and recovery time.
+
+## Step 4 — Protect a copy from being deleted
+
+Select **Protect from retention** on a successful run to keep it from automatic pruning. The **Protected**
+badge identifies the exception. Release protection when normal retention should apply again.
+
+## Step 5 — Restore a backup
+
+<Callout title="Restore replaces current data" type="warn">
+Take a fresh backup of the current state first if you may need it. The restore flow does not automatically
+capture that state. Protecting the selected archive only prevents retention from pruning it.
+</Callout>
+
+### Start the restore
+
+Choose a successful run in **Recent backups** and select **Restore**. Confirm that it belongs to the intended
+service, environment, and destination.
+
+### Review
+
+Review the archive and overwrite warning. Keep protection enabled if the selected archive must survive
+retention, then continue to **Prepare**.
+
+### Prepare (a safe check)
+
+OpenShip retrieves and verifies the backup. Preparation does not yet replace the running data.
+Resolve verification failures before continuing.
+
+### Confirm
+
+Type the service name exactly when prompted. Only continue when the overwrite and interruption are acceptable.
+
+### Apply
+
+Select **Apply restore**. The service is stopped, its data is replaced, and it restarts. Wait for completion,
+then verify logs, database access, and an application operation. A failed restore needs investigation before
+another attempt; it has no automatic one-click undo.
+
+## CLI
+
+Everything above works from the CLI. The base command is `openship backup`, with four groups: `destination`,
+`policy`, `run`, and `restore`.
+
+```bash
+# 1. Add a destination (S3-compatible example) and verify it
+openship backup destination create \
+  --name "Production R2" --kind s3_compatible \
+  --endpoint https://<account>.r2.cloudflarestorage.com \
+  --bucket my-backups --region auto \
+  --access-key-id <id> --secret-access-key <key>
+
+openship backup destination list
+openship backup destination preflight <destinationId>
+
+# 2. Create a daily policy for one service, keeping 7 copies
+openship backup policy create \
+  --project <projectId> --destination <destinationId> \
+  --service <serviceId> --cron "0 3 * * *" \
+  --retain-count 7 --pre-deploy
+
+# 3. Run it now and watch it finish
+openship backup policy run <policyId> --follow
+
+# 4. See runs, and protect one from pruning
+openship backup run list --project <projectId>
+openship backup run protect <runId>            # or --release to unprotect
+
+# 5. Restore — a two-step, on-purpose flow
+#    'restore' stages it and prints a restoreId + confirmation token…
+openship backup run restore <runId>
+#    …then apply it with that token (this is destructive)
+openship backup restore apply <restoreId> --token <confirmationToken> --follow
+```
+
+<Callout title="Restore is deliberately two steps" type="info">
+`backup run restore` only *prepares* the restore and hands you a confirmation token — it doesn't change
+anything yet. You must run `backup restore apply` with that token to actually swap the data in. This mirrors the
+"type the name to confirm" gate in the dashboard.
+</Callout>
+
+## Troubleshooting
+
+| Problem | Check |
+| --- | --- |
+| Destination verification fails | Credentials, bucket/path existence, permissions, and network reachability. |
+| Policy cannot be created | Add and verify a destination first. |
+| Run fails before upload | Inspect the run log and any pre-hook exit status. |
+| Retention leaves an old archive | Check protection and cleanup failures; inspect the retention job. |
+| Restored service fails | Confirm archive scope, application version, schema compatibility, and service logs. |
+| Restore must be reversed | Use a backup containing the desired prior state; the overwrite itself is not reversible. |
+
+## Related guides
+
+<Cards>
+  <Card title="Multi-service apps" href="/docs/guides/compose-multi-service" description="Understand services — the parts of your app that policies back up individually." />
+  <Card title="Environment variables" href="/docs/guides/environment-variables" description="Give backup hooks the database credentials they need, safely." />
+  <Card title="Custom domains" href="/docs/guides/custom-domains" description="Put your app on your own address with automatic HTTPS." />
+</Cards>

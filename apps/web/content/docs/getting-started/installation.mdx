@@ -1,0 +1,133 @@
+---
+title: Installation
+description: Choose managed Cloud, a self-hosted web dashboard, or the optional Desktop app.
+---
+
+| Control plane | Best for | What you maintain |
+| --- | --- | --- |
+| [OpenShip Cloud](#openship-cloud) | A managed dashboard and Cloud capacity or connected servers. | Your application and any servers you bring. |
+| [Self-hosted web](#run-openship) | An always-on dashboard on your own infrastructure. | The OpenShip installation, its data, and your application infrastructure. |
+| [Desktop](#desktop-app) | A local control plane without a public dashboard endpoint. | The local app and your deployment destinations. |
+
+The control plane and application destination are separate choices. See the
+[runtime model](/docs/architecture/runtime-model) for build locations and supported runtimes.
+
+## Install
+
+For self-hosted web or command-line access, install the CLI:
+
+<InstallTabs includePackageManagers />
+
+The install scripts use a suitable system Node or download a checksum-verified Node runtime for OpenShip.
+Package-manager installations require **Node.js 22 or newer**. The CLI's Node fallback can be accepted
+non-interactively with `OPENSHIP_VENDOR_NODE=1`.
+
+<Details title="Pin a release or fix your PATH">
+
+Set the version on the shell running the installer, not on `curl`:
+
+```bash
+curl -fsSL https://get.openship.io | OPENSHIP_VERSION=0.9.12 sh
+```
+
+If `openship` is not found, open a new terminal. On macOS/Linux, the installer uses `~/.openship/bin`.
+After changing Node versions with nvm, fnm, or Volta, reinstall global npm packages under the new version.
+
+</Details>
+
+## Run Openship
+
+On the machine that will host the control plane, start the guided setup:
+
+```bash
+openship
+```
+
+Create the administrator account and choose private access or a public hostname. The installer prints
+the dashboard URL. Keep the original installation user and its `~/.openship` data for later maintenance.
+
+| Installation mode | Behavior |
+| --- | --- |
+| Docker Compose | Default on Linux with Docker. Runs the API, dashboard, Postgres, Redis, and OpenResty edge. |
+| Bare | Run `openship up --bare`. Uses an embedded database and host processes; no container isolation for the control plane. |
+
+`openship up` starts the service without the guided administrator setup. Create the first account in the
+dashboard, or use [unattended installation](/docs/guides/self-hosted-operations#fully-unattended-install-headless).
+Only expose an uninitialized instance through access you control.
+
+<Callout title="Control-plane access is privileged" type="warn">
+A self-hosted OpenShip installation can manage its host and deployment credentials. Restrict dashboard
+access, configure HTTPS, and review [host control](/docs/guides/self-hosted-operations#host-control-hardening)
+before deploying alongside sensitive workloads.
+</Callout>
+
+### Host control (hardening)
+
+The Compose installer provisions an SSH channel for host operations. A management-only control plane can
+use `openship up --no-host-control`. The Docker socket remains privileged; this option is defense in depth,
+not a sandbox. See [host control and service operation](/docs/guides/self-hosted-operations).
+
+### Removing Openship
+
+`openship stop` keeps installation data. `openship uninstall` removes the installation and asks for
+confirmation. Review [removal and data retention](/docs/guides/self-hosted-operations#removing-openship)
+before running it.
+
+### Fully unattended install (headless)
+
+Use `--non-interactive` with administrator and domain options for CI or fleet provisioning.
+The [unattended installation procedure](/docs/guides/self-hosted-operations#fully-unattended-install-headless)
+covers secrets, certificates, and supported domain modes.
+
+## Desktop app
+
+[Download Desktop](/download) for macOS, Windows, or Linux. It bundles the API, dashboard, and local database.
+If the CLI is already installed, `openship install` downloads and launches the app.
+
+Desktop is optional. It keeps the control plane local while supported remote deployments continue to run
+independently. Scheduled operations and webhook-driven workflows need an available controller.
+
+<Details title="Run the Linux AppImage">
+
+```bash
+chmod +x Openship.AppImage
+./Openship.AppImage
+```
+
+If FUSE is unavailable, install the required FUSE package for your distribution or run:
+
+```bash
+./Openship.AppImage --appimage-extract-and-run
+```
+
+</Details>
+
+## Manual Compose or development installation
+
+For manual control of Compose files, version pinning, or an isolated `openship-dev` build, follow
+[manual and development installation](/docs/getting-started/manual-installation).
+Use published releases for production.
+
+## Open it and check it's working
+
+```bash
+openship open
+openship status
+```
+
+The dashboard normally listens on port `3001`, and the API on `4000`. Use the configured public URL or a
+secure tunnel for remote access. If startup or login fails, run `openship doctor` and check
+[installation troubleshooting](/docs/troubleshooting).
+
+## Openship Cloud
+
+[Open the Cloud dashboard](https://app.openship.io). Cloud manages the control plane for you; no local
+installation is required. Choose a Cloud space for managed capacity, or a server management plan to connect
+your own infrastructure. See [Cloud spaces](/docs/guides/cloud-workspaces) for capacity and billing scope.
+
+## Next steps
+
+<Cards>
+  <Card title="Quickstart" href="/docs/getting-started/quickstart" description="Connect source code and verify a deployment." />
+  <Card title="Production readiness" href="/docs/guides/production-readiness" description="Prepare access, backups, monitoring, and recovery." />
+</Cards>

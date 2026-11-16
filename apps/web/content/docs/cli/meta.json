@@ -1,0 +1,21 @@
+{
+  "title": "CLI",
+  "icon": "terminal",
+  "pages": [
+    "index",
+    "---Get connected---",
+    "run",
+    "access",
+    "cloud",
+    "native",
+    "---Workflows---",
+    "deploy",
+    "projects",
+    "operations",
+    "self-host",
+    "edge",
+    "automation",
+    "---Reference---",
+    "reference"
+  ]
+}
